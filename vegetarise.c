@@ -15,8 +15,41 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  *
- * $Id: vegetarise.c,v 1.3 2002-12-06 15:33:50 werner Exp $
+ * $Id: vegetarise.c,v 1.4 2003-07-17 13:41:30 werner Exp $
  */
+
+/* How to use:
+ *
+ *  # Put this at the top of your ~/.procmailrc:
+ *  #
+ *  VEGETARISE_SOCKET=$HOME/.vegetarise-socket
+ *  # After basic filtering, e.g. throwing away all chinese stuff and the
+ *  # worm of the day, add a rule like:
+ *  :0
+ *  * ? vegetarise -s $HOME/Mail/words
+ *  spamfolder2/
+ *
+ *
+ *  To intialize vegetarize you need to have collections of spam and
+ *  vegetarian mails.  For example, if you have sorted them into two
+ *  mbox files:
+ *
+ *     vegetarise -l veg.mbox spam.mbox >words
+ *
+ *  To add new stuff to an esisting word list, use this:
+ *
+ *     vegetarise -l veg.mbox spam.mbox oldwords >words
+ *
+ *  If you don't have mbox files but two files each with a list of mails
+ *  (MH or Maildir format), you can use this:
+ *
+ *     vegetarise - veg-files.list spam-files.list oldwords >words
+ *
+ *  It can either be run standalone (usually slow) or in auto server
+ *  mode (using option -s).
+ **/
+
+
 
 #include <stdio.h>
 #include <stdlib.h>

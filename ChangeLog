@@ -1,3 +1,17 @@
+2003-07-17  Werner Koch  <wk@gnupg.org>
+
+	* vegetarise.c: Add minimal usage information.
+
+2003-04-05  Werner Koch  <wk@gnupg.org>
+
+	* mkdiff: Use awk to cope with the VERSION file.  This allows for
+	multiline files.
+
+2002-12-23  Werner Koch  <wk@gnupg.org>
+
+	* webbsh.c (check_for_suid): Filter output of find.  Noted by
+	Thomas Roessler.
+
 2002-12-06  Werner Koch  <wk@gnupg.org>
 
 	* webbsh.c: New.
