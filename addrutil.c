@@ -1,5 +1,5 @@
 /* [addrutil.c wk 07.03.97] Tool to mess with address lists
- *	Copyright (c) 1997 by Werner Koch (dd9jn)
+ *	Copyright (c) 1997, 2003 Werner Koch (dd9jn)
  *	Copyright (C) 2000 OpenIT GmbH
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,7 +17,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  */
 
-/* $Id: addrutil.c,v 1.1 2001-12-19 09:30:11 werner Exp $ */
+/* $Id: addrutil.c,v 1.2 2003-11-22 21:35:24 werner Exp $ */
 
 /* How to use:
 
@@ -98,7 +98,7 @@ commands:
 #include <ctype.h>
 
 #define PGMNAME "addrutil"
-#define VERSION "0.70"
+#define VERSION "0.71"
 #define FIELDNAMELEN 40 /* max. length of a fieldname */
 
 #ifdef __GNUC__
@@ -257,7 +257,7 @@ CopyRight( int level )
     switch( level ) {
       case 10:
       case 0:	p = "addrutil - v" VERSION "; "
-		    "Copyright (C) 2000 OpenIT GmbH" ; break;
+		    "Copyright (C) 2003 Werner Koch" ; break;
       case 13:	p = "addrutil"; break;
       case 14:	p = VERSION; break;
       case 1:
@@ -268,6 +268,14 @@ CopyRight( int level )
     "\nSyntax: addrutil [options] [files]\n"
     "Handle address database files\n";
 	break;
+      case 19:  p = /* Footer */
+    "Format modes:  0   Colon delimited fields\n"
+    "               1   Colon delimited name=fields pairs\n"
+    "               2   `Name',`Street',`City' formatted for labels\n"
+    "               3   Addrutil format\n"
+    "               4   Semicolon delimited format\n"
+    "";
+        break;
       default:	p = "";
     }
     ShowCopyRight(level);
@@ -588,6 +596,10 @@ show_help( ARGPARSE_OPTS *opts, unsigned flags )
 	if( flags & 32 )
 	    puts("\n(A single dash may be used instead of the double ones)");
     }
+    if( (s=CopyRight(19)) ) {  /* bug reports to ... */
+	putchar('\n');
+	fputs(s, stdout);
+    }
     fflush(stdout);
     exit(0);
 }
@@ -616,7 +628,7 @@ int
 main( int argc, char **argv )
 {
     ARGPARSE_OPTS opts[] = {
-    { 'f', "format",    1, "use output format n"},
+    { 'f', "format",    1, "use output format N"},
     { 's', "sort"      ,0, "sort the file" },
     { 'F', "field"     ,2, "output this field" },
     { 'T', "tex-file",  2, "use TeX file as template"},
@@ -775,7 +787,7 @@ Process( const char *filename )
     FILE *fp;
     int c;
     unsigned long lineno=0;
-    long lineoff; /* offset of the current line */
+    long lineoff=0; /* offset of the current line */
     int newline;
     int comment=0;
     int linewrn=0;
@@ -787,8 +799,8 @@ Process( const char *filename )
 	   sDATABEG, /* waiting for start of value */
 	   sDATA     /* storing a value */
     } state = sINIT;
-    FIELD f;  /* current field */
-    DATA  d;  /* current data slot */
+    FIELD f=NULL;  /* current field */
+    DATA  d=NULL;  /* current data slot */
     SORT sort = sortlist;
     int pending_lf = 0;
     int skip_kludge = 0;
@@ -1148,7 +1160,7 @@ static void
 FinishRecord()
 {
     FIELD f;
-    DATA d;
+    DATA d=NULL;
     int any = 0;
     size_t n;
     char *p;
@@ -1182,7 +1194,22 @@ FinishRecord()
 		if( f->valid ) {
 		    for(d=f->data ; d ; d = d->next ) {
 			if( d->activ )
-			    printf("%s%.*s", any? ":":"", (int)d->used, d->d );
+                          {
+                            const char *s;
+                            int i;
+
+			    if (any)
+                              putchar(':');
+                            for (i=0,s=d->d; i < d->used; s++, i++)
+                              {
+                                if (*s == '%')
+                                  fputs ("%25", stdout);
+                                else if (*s == ':')
+                                  fputs ("%3a", stdout);
+                                else
+                                  putchar (*s);
+                              }
+                          }
 			else if( any )
 			    putchar(':');
 			any = 1;
@@ -1289,7 +1316,7 @@ PrintFormat2( int flushit )
     static int totlines = 0;
     static char *names[] = { "Name", "Street", "City" , NULL };
     NAMEBUCKET buck;
-    FIELD f;
+    FIELD f=NULL;
     DATA d;
     int n, len, lines = 0;
     const char *name;
@@ -1349,7 +1376,7 @@ static void
 PrintTexFile( int flushit )
 {
     char pseudo_op[200];
-    int c, pseudo_op_idx;
+    int c, pseudo_op_idx=0;
     int state=0;
 
     if( flushit && tex.end_block ) {
@@ -1492,4 +1519,8 @@ DoSortFnc( const void *arg_a, const void *arg_b )
     return strcmp( a->d, b->d );
 }
 
-/*** bottom of file ***/
+/*
+Local Variables:
+compile-command: "cc -Wall -O2 -o addrutil addrutil.c"
+End:
+*/
