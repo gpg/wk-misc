@@ -83,7 +83,7 @@ Please check the signature of this patch file:
 Change to directory $pack-$prev_ver (or however you renamed it)
 and give this command:
 
-     zcat somepath/$pack-$prev_ver-$curr_ver.diff.gz | patch -p1
+    zcat somepath/$pack-$prev_ver-$curr_ver.diff.gz | patch -p1
 
 It is a good idea to rename your current directory to $pack-$curr_ver now.
 
@@ -93,9 +93,12 @@ Prereq: $prev_ver
 
 EOF
 
-sed -ne '/^diff.*VERSION/,/^+[0-9][0-9]*/ p' $tmp_name >> $diff_name
-echo  >> $diff_name
-sed -e '/^diff.*VERSION/,/^+[0-9][0-9]*/ d'  $tmp_name >> $diff_name
+#sed -ne '/^diff.*VERSION/,/^+[0-9][0-9]*/ p' $tmp_name >> $diff_name
+#echo  >> $diff_name
+#sed -e '/^diff.*VERSION/,/^+[0-9][0-9]*/ d'  $tmp_name >> $diff_name
+awk '/^diff.*\/VERSION/ {x=1; print; next}; /^diff.*/ && x == 1 {x = 2}; x == 1 {print}' $tmp_name >> $diff_name
+awk '/^diff.*\/VERSION/ {x=1; next}; /^diff.*/ && x == 1 {x = 2; print}; x != 1 {print}' $tmp_name >> $diff_name
+
 
 rm $tmp_name
 

@@ -21,6 +21,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -139,8 +140,10 @@ check_for_suid (const char *directory)
               fputs ("' detected\n",stderr);
               esc = 2;
             }
-          else
+          else if (isascii (c) && isprint (c))
             putc (c, stderr);
+          else
+            printf ("\\%02x", c );
         }
       if ( (rc=pclose (fp)) )
         {
