@@ -238,7 +238,7 @@ do_update ()
     (   
         awk -v fn="$filename" '$1 == fn {exit 0}; {print $0}' $manifest
         echo -n "$filename "
-        gpg -sabu $keyid -o - $realfilename | awk '
+        gpg2 -sabu $keyid -o - $realfilename | awk '
 /^-----BEGIN/ {hdr=1; next}
 hdr && /^[ \t]*$/ {hdr=0; next}
 hdr {next}

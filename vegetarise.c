@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  *
- * $Id: vegetarise.c,v 1.5 2003-07-20 16:28:08 werner Exp $
+ * $Id: vegetarise.c,v 1.6 2004-09-11 14:51:51 werner Exp $
  */
 
 /* How to use:
@@ -30,7 +30,7 @@
  *  spamfolder2/
  *
  *
- *  To intialize vegetarize you need to have collections of spam and
+ *  To intialize vegetarise you need to have collections of spam and
  *  vegetarian mails.  For example, if you have sorted them into two
  *  mbox files:
  *
@@ -43,7 +43,7 @@
  *  If you don't have mbox files but two files each with a list of mails
  *  (MH or Maildir format), you can use this:
  *
- *     vegetarise - veg-files.list spam-files.list oldwords >words
+ *     vegetarise -L veg-files.list spam-files.list oldwords >words
  *
  *  It can either be run standalone (usually slow) or in auto server
  *  mode (using option -s).
