@@ -17,7 +17,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  */
 
-/* $Id: addrutil.c,v 1.3 2003-12-29 11:48:08 werner Exp $ */
+/* $Id: addrutil.c,v 1.4 2004-05-10 12:00:57 werner Exp $ */
 
 /* How to use:
 
@@ -1170,7 +1170,8 @@ FinishRecord()
     char *p;
     int indent;
 
-    if( !opt.checkonly && fieldlist->valid  ) { /* there is a valid record */
+    if( !opt.checkonly && fieldlist && fieldlist->valid  ) {
+        /* there is a valid record */
 	if( opt.sortmode == 1 ) { /* store only */
 	    SORT sort;
 
@@ -1196,27 +1197,37 @@ FinishRecord()
 	else if( opt.format == 0 ) {
 	    for(f=GetFirstField(); f; f = GetNextField() ) {
 		if( f->valid ) {
+                    int need_tab = 0;
 		    for(d=f->data ; d ; d = d->next ) {
 			if( d->activ )
                           {
                             const char *s;
                             int i;
 
-			    if (any)
+                            if (need_tab)
+                              putchar ('\t');
+			    else if (any)
                               putchar(':');
                             for (i=0,s=d->d; i < d->used; s++, i++)
                               {
                                 if (*s == '%')
                                   fputs ("%25", stdout);
                                 else if (*s == ':')
-                                  fputs ("%3a", stdout);
+                                  fputs ("%3A", stdout);
+                                else if (*s == '\n')
+                                  fputs ("%0A", stdout);
+                                else if (*s == '\t')
+                                  putchar (' ');
                                 else
                                   putchar (*s);
                               }
                           }
+                        else if (need_tab)
+                          putchar ('\t');
 			else if( any )
-			    putchar(':');
+                          putchar(':');
 			any = 1;
+                        need_tab = 1;
 		    }
 		}
 		else {
