@@ -1,0 +1,290 @@
+#!/bin/sh
+# Process GnuPG based Manifest files
+# Copyright (C) 2003 g10 Code GmbH
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
+
+# Default values
+PGM="manifest-tool"
+PGM_VERSION="0.1"
+keyid=${MANIFEST_KEYID:-"0x37D92FFB"}
+mode=check
+manifest="Manifest"
+tmp_manifest=".#Manifest.$$"
+tmp_allnames=
+LC_ALL=C
+
+# Helper constants
+tick='`'
+
+# Parse the options
+prev=
+while [ $# -gt 0 ]; do
+  arg="$1"
+  case $arg in
+      -*=*) optarg=$(echo "X$arg" | sed -e '1s/^X//' -e 's/[-_a-zA-Z0-9]*=//')
+            ;;
+         *) optarg=
+            ;;
+  esac
+  if [ -n "$prev" ]; then
+    eval "$prev=\$arg"
+    prev=
+    shift
+    continue
+  fi
+  case $arg in
+      --version)
+          echo "$PGM $PGM_VERSION"
+          exit 0
+          ;;
+
+      --help|-h)
+          cat <<EOF
+Usage: $PGM [options] [arguments]
+Update or check a Manifest file
+
+Options:
+  -c, --check            Verify the Manifest file [default]
+  -u, --update           Update a file's signature
+  --update-names         Update the signature of all names
+  --manifest-file=FILE   Use FILE instead of ${tick}Manifest'
+  --keyid=ID             Use key ID for signing (default=$keyid)
+
+Environment:
+
+MANIFEST_KEYID=ID        Set the default for the signing keyid to ID
+
+Example:
+
+  $PGM --update foo.c
+
+This updates and replaces the signature of the file ${tick}foo.c'
+in the Manifest file.  ${tick}foo.c' is expected to be in Manifest.
+EOF
+          exit 0
+          ;;
+    
+      --update|-u)
+          mode=update
+          ;;
+
+      --update-names)
+          mode=update-names
+          ;;
+
+      --check|-c)
+          mode=check
+          ;;
+
+      --manifest-file)  
+          prev=manifest
+          ;;
+      --manifest-file=*)
+          manifest="$optarg"
+          ;;
+
+      -*)
+          echo "$PGM: invalid option $tick$arg'" >&2
+          exit 1
+          ;;
+
+      *)
+          break
+          ;;
+  esac
+  shift
+done
+if [ -n "$prev" ]; then
+  echo "$PGM: argument missing for option $tick$prev'" >&2
+  exit 1
+fi
+
+
+# Check mode
+do_check ()
+{
+    tmp=$(gawk '
+/^[ \t]*(\#|$)/ {next}
+    {if (length ($1) > maxlen) maxlen=length($1)}
+END { print maxlen+1 }' $manifest)
+
+    gawk -v maxfilelen=$tmp '
+/^[ \t]*(\#|$)/ {next}
+$1 == "$names$"   { allnames_sig = $2; next }
+                  { check_sig($1, $1, $2); allnames = (allnames $1 "\n") }
+
+END {
+  tmpfile = ("/tmp/check-manifest." PROCINFO["pid"]);
+  command = ("sort > " tmpfile);
+  printf "%s", allnames | command;
+  close(command);
+  check_sig(tmpfile, "$names$", allnames_sig);
+  system("rm " tmpfile);
+  if (ANYERR)
+    printf "warning: some files not checked\n" > "/dev/stderr";
+  if (ANYBAD)
+    printf "warning: bad signatures found\n" > "/dev/stderr";
+  exit (ANYERR || ANYBAD)? 1:0;
+}
+
+
+function check_sig(file, fileprint, a,    command, pos, len, n, line, arr, any)
+{
+  command = ("gpg --verify --logger-fd 1 --status-fd 1 - " file);
+  print "-----BEGIN PGP SIGNATURE-----\n" |& command;
+  len = index(a, "=");
+  if (substr (a, len+1, 1) == "=" && substr (a, len+2, 1) == "=")
+    len++;
+  for (pos=1; len > 0; len -= n) {
+    n = len;
+    if (n > 72)
+      n = 72;
+    print substr (a, pos, n) |& command;
+    pos += n;
+  }
+  print substr (a, pos) |& command;
+  print "-----END PGP SIGNATURE-----" |& command;
+  close(command, "to");
+  any = 0
+  while ((command |& getline line) > 0) {
+    split(line, arr);
+    if( arr[1] != "[GNUPG:]")
+      continue;
+    if( arr[2] == "VALIDSIG" ) {
+      printf ("! %-" maxfilelen "s %s %s\n"), fileprint, arr[3], arr[4];
+      any = 1;
+      continue;
+    }
+    if( arr[2] == "BADSIG" ) {
+      printf ("- %-" maxfilelen "s %s\n"), fileprint, arr[3];
+      any = 1;
+      ANYBAD=1
+      continue;
+    }
+  }      
+  close(command);
+  if( !any ) {
+      printf "? %s\n", fileprint;
+      ANYERR=1;
+  }
+}
+          ' $manifest  
+    exit $?
+}
+
+
+
+# Update mode
+do_update ()
+{
+    filename="$1"
+
+    if echo "$filename" | grep '[	/ ]' >/dev/null; then
+        echo "$PGM $tick$filename' may not contain directory separators or spaces" >&2
+        exit 1
+    fi
+
+    if awk -v fn="$filename" '$1 == fn {rc=1;exit}; END {exit rc}' $manifest
+    then
+        echo "$PGM: $tick$filename' is not present in $tick$manifest'" >&2
+        exit 1
+    fi
+
+    if [ "$filename" == '$names$' ]; then
+        tmp_allnames="/tmp/update-manifest.$$"
+        awk '/^[ \t]*(\#|$)/ {next}; $1 != "$names$" {print $1}' \
+            $manifest | sort > $tmp_allnames
+        realfilename="$tmp_allnames"
+    else
+        if [ ! -f "$filename" ]; then
+            echo "$PGM: $tick$filename' not found" >&2
+            exit 1
+        fi
+        realfilename="$filename"
+    fi
+
+
+    # Copy the first part, sign and then copy the second part to the temp file
+    (   
+        awk -v fn="$filename" '$1 == fn {exit 0}; {print $0}' $manifest
+        echo -n "$filename "
+        gpg -sabu $keyid -o - $realfilename | awk '
+/^-----BEGIN/ {hdr=1; next}
+hdr && /^[ \t]*$/ {hdr=0; next}
+hdr {next}
+/^-----END/ {print ""; exit 0}
+   {printf "%s", $0; next}
+'
+        if [ $? != 0 ]; then
+            echo "$PGM: signing failed" >&2
+            exit 1
+        fi
+        awk -v fn="$filename" '$1 == fn {ok=1;next}; ok==1 {print $0}' $manifest
+    ) > $tmp_manifest
+
+    # Update the orginal file
+    if ! mv "$tmp_manifest" "$manifest"; then
+        echo "$PGM: failed to update manifest file" >&2
+        exit 1
+    fi
+}
+
+
+# Cleanup on exit
+cleanup ()
+{
+    [ -f "$tmp_manifest" ] && rm "$tmp_manifest"
+    [ -n "$tmp_allnames" -a -f "$tmp_allnames" ] && rm "$tmp_allnames"
+}
+
+trap cleanup EXIT SIGINT SIGHUP SIGPIPE
+
+
+# Check that the Manifest file is there
+if [ ! -f "$manifest" ]; then
+    echo "$PGM: $tick$manifest' not found" >&2
+    exit 1
+fi
+
+
+# Main function dispatcher
+case $mode in 
+    check)
+        do_check
+        ;;
+ 
+    update)
+        if [ $# != 1 ]; then
+            echo "usage: $PGM --update <filename>" >&2
+            exit 1
+        fi
+        do_update $1
+        ;;
+
+    update-names)
+        if [ $# != 0 ]; then
+            echo "usage: $PGM --update-names" >&2
+            exit 1
+        fi
+        do_update '$names$'
+        ;;
+
+    *)
+        echo "$PGM: invalid mode $tick$mode'" >&2
+        exit 1
+        ''
+esac
+cleanup

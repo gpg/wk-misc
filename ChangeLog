@@ -1,3 +1,7 @@
+2003-11-18  Werner Koch  <wk@gnupg.org>
+
+	* manifest-tool: New.
+
 2003-07-20  Werner Koch  <wk@gnupg.org>
 
 	* vegetarise.c (main): Fixed counting for mbox files.  Thanks to
