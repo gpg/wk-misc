@@ -1,3 +1,8 @@
+2003-07-20  Werner Koch  <wk@gnupg.org>
+
+	* vegetarise.c (main): Fixed counting for mbox files.  Thanks to
+	Andreas Beck.
+
 2003-07-17  Werner Koch  <wk@gnupg.org>
 
 	* vegetarise.c: Add minimal usage information.

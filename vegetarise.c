@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  *
- * $Id: vegetarise.c,v 1.4 2003-07-17 13:41:30 werner Exp $
+ * $Id: vegetarise.c,v 1.5 2003-07-20 16:28:08 werner Exp $
  */
 
 /* How to use:
@@ -1617,7 +1617,7 @@ main (int argc, char **argv)
                 }
             }
           else
-            spam_count += parse_message (argv[1], spam_fp, 0, 1, ha);
+            spam_count += parse_message (argv[1], spam_fp, 1, 1, ha);
           fclose (spam_fp);
         }
       info ("computing probabilities\n");
