@@ -210,7 +210,8 @@ main (int argc, char **argv)
       exit (1);
     }
 
-  if ( getgroups (0, dummy_grplist) )
+  n = getgroups (0, dummy_grplist);
+  if ( n < 0 || n > 1)
     { 
       fprintf (stderr, "webbsh: user `%s' must not"
                        " have any supplementary groups\n", ACCOUNT);
