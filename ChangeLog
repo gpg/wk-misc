@@ -1,0 +1,4 @@
+2002-06-30  Werner Koch  <wk@gnupg.org>
+
+	* mkdiff: New option --no-sign.
+

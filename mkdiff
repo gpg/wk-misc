@@ -1,5 +1,11 @@
 #!/bin/sh
 
+opt_sign=yes
+if [ "$1" == "--no-sign" ]; then
+  opt_sign=no
+  shift
+fi
+
 if [ $# = 1 ]; then
     pack="$1"
     vprf=""
@@ -7,7 +13,7 @@ elif [ $# = 2 ] ; then
     pack="$1"
     vprf="$2"
 else
-    echo "usage: mkdiff package-name [version-prefix]" >&2
+    echo "usage: mkdiff [--no-sign] package-name [version-prefix]" >&2
     exit 1
 fi
 
@@ -28,7 +34,7 @@ fi
 
 echo "Current  is: $pack-$curr_ver"
 echo "Previous is: $pack-$prev_ver"
-
+[ $opt_sign != yes ] && echo "signing disabled"
 
 echo "Removing old directories"
 [ -d "$pack-$curr_ver" ] && rm -rf "$pack-$curr_ver"
@@ -93,9 +99,14 @@ sed -e '/^diff.*VERSION/,/^+[0-9][0-9]*/ d'  $tmp_name >> $diff_name
 
 rm $tmp_name
 
+if [ $opt_sign = yes ]; then
 echo "Signing and compressing patch file"
 gpg --clearsign --not-dash-escaped -u 57548DCD \
     < $diff_name | gzip --best > $diff_name.gz
+else
+echo "compressing patch file"
+cat $diff_name | gzip --best > $diff_name.gz
+fi
 rm $diff_name
 
 echo "Checking patch file"
@@ -109,10 +120,11 @@ if ! diff -urN "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
    exit 1
 fi
 
+if [ $opt_sign = yes ]; then
 if ! zcat $diff_name.gz | gpg --batch --verify ; then
     exit 1
 fi
-
+fi
 
 echo "cleaning up"
 
