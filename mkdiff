@@ -115,9 +115,24 @@ zcat ../$diff_name.gz | patch -s -p1
 rm $(find . -name "*.orig") 2>/dev/null || true
 cd ..
 
-if ! diff -urN "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
+if ! diff -urP "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
    echo "compare failed"
-   exit 1
+   
+   while :; do
+     echo "what shall we do: (v)iew, (i)gnore, (a)bort ?" >&2
+     read
+     case "$REPLY" in
+       v|V)
+          diff -urP "$pack-$prev_ver/" "$pack-$curr_ver/" | less
+	  ;;
+       i|I)
+          break
+	  ;;
+       a|A)
+          exit 1
+	  ;;
+     esac
+   done
 fi
 
 if [ $opt_sign = yes ]; then

@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  *
- * $Id: vegetarise.c,v 1.2 2002-10-19 15:07:12 werner Exp $
+ * $Id: vegetarise.c,v 1.3 2002-12-06 15:33:50 werner Exp $
  */
 
 #include <stdio.h>
@@ -28,6 +28,7 @@
 #include <assert.h>
 #ifdef HAVE_PTH /* In theory we could use sockets without Pth but it
                    does not make much sense to we require it. */
+#include <signal.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -51,6 +52,28 @@
 #else
 #define inline
 #endif
+#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 5)
+#define ATTR_PRINTF(a,b)    __attribute__ ((format (printf,a,b)))
+#define ATTR_NR_PRINTF(a,b) __attribute__ ((noreturn,format (printf,a,b)))
+#else
+#define ATTR_PRINTF(a,b)    
+#define ATTR_NR_PRINTF(a,b)
+#endif
+
+#define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
+#define DIMof(type,member)   DIM(((type *)0)->member)
+
+
+
+#ifdef HAVE_PTH
+# define my_read(a,b,c) pth_read ((a),(b),(c))
+# define my_write(a,b,c) pth_write ((a),(b),(c))
+# define YIELD  do { if (running_as_server) pth_yield (NULL); } while (0)
+#else
+# define my_read(a,b,c) read ((a),(b),(c))
+# define my_write(a,b,c) write ((a),(b),(c))
+# define YIELD  do { ; } while (0)
+#endif
 
 #define xtoi_1(a)   ((a) <= '9'? ((a)- '0'): \
                      (a) <= 'F'? ((a)-'A'+10):((a)-'a'+10))
@@ -73,21 +96,42 @@ struct hash_entry_s {
   struct hash_entry_s *next;
   unsigned int veg_count; 
   unsigned int spam_count; 
-  unsigned int hits;
+  unsigned int hit_ref; /* reference to the hit table. */
   char prob; /* range is 1 to 99 or 0 for not calculated */
   char word [1];
 };
 typedef struct hash_entry_s *HASH_ENTRY;
 
+struct hit_array_s {
+  size_t size; /* Allocated size. */
+  unsigned int *hits;  
+};
+typedef struct hit_array_s *HIT_ARRAY;
+
+
+/* Option flags. */
 static int verbose;
-static int learning;
 static int name_only;
 
+/* Flag to indicate that we are running as a server. */
+static int running_as_server;
+
+/* Keep track of memory used for debugging. */
 static size_t total_memory_used;
 
+
+/* The global table with the words and its size. */ 
 static int hash_table_size; 
 static HASH_ENTRY *word_table;
+
+/* When storing a new word, we assign a hit reference id to it, so
+   that we can index a hit table.  The variable keeps tracks of the
+   used reference numbers. */
+static unsigned int next_hit_ref;
+
+/* Number of good and bad messages the word table is made up. */
 static unsigned int srvr_veg_count, srvr_spam_count;
+
 
 
 /* Base64 conversion tables. */
@@ -97,14 +141,8 @@ static unsigned char bintoasc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 static unsigned char asctobin[256]; /* runtime initialized */
 
 
-#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 5)
-#define ATTR_PRINTF(a,b)    __attribute__ ((format (printf,a,b)))
-#define ATTR_NR_PRINTF(a,b) __attribute__ ((noreturn,format (printf,a,b)))
-#else
-#define ATTR_PRINTF(a,b)    
-#define ATTR_NR_PRINTF(a,b)
-#endif
 
+/* Prototypes. */
 
 static void die (const char *format, ...)   ATTR_NR_PRINTF(1,2);
 static void error (const char *format, ...) ATTR_PRINTF(1,2);
@@ -398,6 +436,42 @@ next_char (FILE *fp, PUSHBACK *pb)
   return c;
 }
 
+static void
+enlarge_hit_array (HIT_ARRAY ha)
+{
+  unsigned int *arr;
+  size_t i, n;
+
+  n = ha->size + 100;
+  arr = xmalloc (n * sizeof *arr);
+  for (i=0; i < ha->size; i++)
+    arr[i] = ha->hits[i];
+  for (; i < n; i++)
+    arr[i] = 0;
+  free (ha->hits);
+  ha->hits = arr;
+  ha->size = n;
+}
+
+static HIT_ARRAY
+new_hit_array (void)
+{
+  HIT_ARRAY ha = xmalloc (sizeof *ha);
+  /* Create the array with space for extra 1000 words */
+  ha->size = next_hit_ref + 1000;
+  ha->hits = xcalloc (ha->size, sizeof *ha->hits);
+  return ha;
+}
+
+static void
+release_hit_array (HIT_ARRAY ha)
+{
+  if (ha)
+    {
+      free (ha->hits);
+      free (ha);
+    }
+}
 
 
 /* 
@@ -423,7 +497,7 @@ store_word (const char *word, int *is_new)
       strcpy (entry->word, word);
       entry->veg_count = 0;
       entry->spam_count = 0;
-      entry->hits = 0;
+      entry->hit_ref = next_hit_ref++;
       entry->prob = 0;
       entry->next = word_table[hash];
       word_table[hash] = entry;
@@ -435,7 +509,8 @@ store_word (const char *word, int *is_new)
 
 
 static void
-check_one_word ( const char *word, int left_anchored, int is_spam)
+check_one_word ( const char *word, int left_anchored, int is_spam,
+                 HIT_ARRAY ha)
 {
   size_t wordlen = strlen (word);
   const char *p;
@@ -483,11 +558,16 @@ check_one_word ( const char *word, int left_anchored, int is_spam)
   else if ( wordlen > 8 && (3*n3) > (n1+n2))
     return; /* long word with 3 times more digits than letters. */
 
-  if (!learning)
-    {
+  if (ha)
+    { /* we are in checking mode */
       int is_new;
       HASH_ENTRY e = store_word (word, &is_new);
-      e->hits++;
+      if (ha->size <= e->hit_ref)
+        {
+          assert (e->hit_ref < next_hit_ref);
+          enlarge_hit_array (ha);
+        }
+      ha->hits[e->hit_ref]++;
     }
   else if (is_spam)
     store_word (word, NULL)->spam_count++;
@@ -498,7 +578,8 @@ check_one_word ( const char *word, int left_anchored, int is_spam)
 /* Parse a message and return the number of messages in case it is an
    mbox message as indicated by IS_MBOX passed as true. */
 static unsigned int
-parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox)
+parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox,
+               HIT_ARRAY ha)
 {
   int c;
   char aword[MAX_WORDLENGTH+1];
@@ -508,10 +589,16 @@ parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox)
   int maybe_base64 = 0;
   PUSHBACK pbbuf;
   unsigned int msgcount = 0;
+  int count = 0;
 
   memset (&pbbuf, 0, sizeof pbbuf);
   while ( (c=next_char (fp, &pbbuf)) != EOF)
     {
+      if ( ++count > 20000 )
+        {
+          count = 0;
+          YIELD;
+        }
     again:
       if (in_token)
         {
@@ -589,7 +676,7 @@ parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox)
                       in_token = 1;
                     }
                   else
-                    check_one_word (aword, left_anchored, is_spam);
+                    check_one_word (aword, left_anchored, is_spam, ha);
                   pbbuf.nl_seen = (c == '\n');
                   goto again;
                 }
@@ -605,13 +692,13 @@ parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox)
                       in_token = 1;
                     }
                   else
-                    check_one_word (aword, left_anchored, is_spam);
+                    check_one_word (aword, left_anchored, is_spam, ha);
                   pbbuf.nl_seen = (c == '\n');
                   goto again;
                 }
 #endif
               else
-                check_one_word (aword, left_anchored, is_spam);
+                check_one_word (aword, left_anchored, is_spam, ha);
             }
         }
       else if ( (c & 0x80) || strchr (TOKENCHARS, c))
@@ -686,7 +773,7 @@ calc_probability (unsigned int ngood, unsigned int nbad)
 
 
 static unsigned int
-check_spam (unsigned int ngood, unsigned int nbad)
+check_spam (unsigned int ngood, unsigned int nbad, HIT_ARRAY ha)
 {
   unsigned int n;
   HASH_ENTRY entry;
@@ -711,7 +798,7 @@ check_spam (unsigned int ngood, unsigned int nbad)
     {
       for (entry = word_table[n]; entry; entry = entry->next)
         {
-          if (entry->hits)
+          if (entry->hit_ref && ha->hits[entry->hit_ref])
             {
               if (!entry->prob)
                 dist = 10; /* 50 - 40 */
@@ -778,22 +865,20 @@ check_spam (unsigned int ngood, unsigned int nbad)
     inv_prod *= 1.0 - st[i].prob;
 
   taste = prod / (prod + inv_prod);
+  if (verbose > 1)
+    info ("taste -> %u\n\n", (unsigned int)(taste * 100));
   return (unsigned int)(taste * 100);
 }
 
 
 
 static void
-reset_hits (void)
+reset_hits (HIT_ARRAY ha)
 {
-  int n;
-  HASH_ENTRY entry;
+  int i;
 
-  for (n=0; n < hash_table_size; n++)
-    {
-      for (entry = word_table[n]; entry; entry = entry->next)
-        entry->hits = 0;
-    }
+  for (i=0; i < ha->size; i++)
+    ha->hits[i] = 0;
 }
 
 static void
@@ -926,16 +1011,16 @@ open_next_file (FILE *listfp, char *fname, size_t fnamelen)
 
 static void
 check_and_print (unsigned int veg_count, unsigned int spam_count,
-                 const char *filename)
+                 const char *filename, HIT_ARRAY ha)
 {
-  int spamicity = check_spam (veg_count, spam_count);
+  int spamicity = check_spam (veg_count, spam_count, ha);
   if (name_only > 0 && spamicity > 90)
     puts (filename); /* contains spam */
   else if (name_only < 0 && spamicity <= 90)
     puts (filename); /* contains valuable blurbs */
   else if (!name_only)
     printf ("%s: %2u\n", filename, spamicity);
-  reset_hits ();
+  reset_hits (ha);
 }
 
 
@@ -955,7 +1040,7 @@ writen (int fd, const void *buf, size_t nbytes)
   
   while (nleft > 0)
     {
-      nwritten = write( fd, buf, nleft );
+      nwritten = my_write( fd, buf, nleft );
       if (nwritten < 0)
         {
           if (errno == EINTR)
@@ -984,7 +1069,7 @@ readline (int fd, char *buf, size_t buflen)
 
   while (nleft > 0)
     {
-      int n = read (fd, buf, nleft);
+      int n = my_read (fd, buf, nleft);
       if (n < 0)
         {
           if (errno == EINTR)
@@ -1095,14 +1180,27 @@ handle_signal (int signo)
 static void *
 handle_request (void *arg)
 {
+  static HIT_ARRAY hit_arrays[10];
+  HIT_ARRAY ha;
   int fd = (int)arg;
+  int i;
   FILE *fp;
   char *p, buf[100];
-
-
+  
   if (verbose > 1)
     info ("handler for fd %d started\n", fd);
-  info ("handling request ...\n");
+  /* See whether we can use a hit_array from our attic */
+  for (ha=NULL, i=0; i < DIM (hit_arrays); i++ )
+    {
+      if (hit_arrays[i])
+        {
+          ha = hit_arrays[i];
+          hit_arrays[i] = NULL;
+          break;
+        }
+    }
+  if (!ha) /* no - create a new one */
+     ha = new_hit_array ();
 
   fp = fdopen (fd, "rw");
   if (!fp)
@@ -1112,8 +1210,8 @@ handle_request (void *arg)
     }
   else
     {
-      parse_message ("[net]", fp, -1, 0);
-      sprintf (buf, "%u\n", check_spam (srvr_veg_count, srvr_spam_count));
+      parse_message ("[net]", fp, -1, 0, ha);
+      sprintf (buf, "%u\n", check_spam (srvr_veg_count, srvr_spam_count, ha));
       p = buf;
     }
   writen (fd, p, strlen (p));
@@ -1122,7 +1220,20 @@ handle_request (void *arg)
     fclose (fp);
   else
     close (fd);
-  reset_hits (); /* FIXME: Need a hit table per connection */
+  reset_hits (ha);
+  /* See whether we can put the array back into our attic */
+  for (i=0; i < DIM (hit_arrays); i++ )
+    {
+      if (!hit_arrays[i])
+        {
+          hit_arrays[i] = ha;
+          ha = NULL;
+          break;
+        }
+    }
+  if (ha)
+    release_hit_array (ha);
+
   if (verbose > 1)
     info ("handler for fd %d terminated\n", fd);
   return NULL;
@@ -1171,8 +1282,10 @@ start_server (const char *name)
     die ("fork failed: %s\n", strerror (errno));
 
   if (pid) 
-    return; /* we are the parent */
-
+    {
+      /* FIXME: we should use a pipe to wait forthe server to get ready */
+      return; /* we are the parent */
+    }
   /* this is the child */
   sa.sa_handler = SIG_IGN;
   sigemptyset (&sa.sa_mask);
@@ -1207,6 +1320,7 @@ start_server (const char *name)
   sigaddset (&sigs, SIGTERM);
   ev = pth_event (PTH_EVENT_SIGS, &sigs, &signo);
 
+  running_as_server = 1; /* enable pth_yield(). */
   for (;;)
     {
       int fd;
@@ -1244,8 +1358,8 @@ usage (void)
    "usage: " PGMNAME " [-t] wordlist [messages]\n"
    "       " PGMNAME "  -T  wordlist [messages-file-list]\n"
    "       " PGMNAME "  -s  wordlist [message]\n"
-   "       " PGMNAME "  -l  veg.mbox spam.mbox\n"
-   "       " PGMNAME "  -L  veg-file-list spam-file-list\n"
+   "       " PGMNAME "  -l  veg.mbox spam.mbox [initial-wordlist]\n"
+   "       " PGMNAME "  -L  veg-file-list spam-file-list [initial-wordlist]\n"
          "\n"
    "  -v      be more verbose\n"
    "  -l      learn mode (mbox)\n"
@@ -1271,6 +1385,7 @@ main (int argc, char **argv)
   FILE *fp;
   char fnamebuf[1000];
   int server_fd = -1;
+  HIT_ARRAY ha = NULL;
 
   /* Build the helptable for radix64 to bin conversion. */
   for (i=0; i < 256; i++ )
@@ -1278,7 +1393,6 @@ main (int argc, char **argv)
   for (s=bintoasc, i=0; *s; s++, i++)
     asctobin[*s] = i;
 
-  /* Option parsing. */
   if (argc < 1)
     usage ();  /* Hey, read how to use exec*(2) */
   argv++; argc--;
@@ -1352,7 +1466,8 @@ main (int argc, char **argv)
 
   if (server)
     {
-      char name[80];
+      char namebuf[80];
+      const char *name;
 
       if (learn)
         die ("learn mode can't be combined with server mode\n");
@@ -1368,7 +1483,13 @@ main (int argc, char **argv)
          will be problematic for NFS mounted homes.  So for now we use
          a constant name under tmp.  Check whether we can use
          something under /var/run */
-      sprintf (name, "/tmp/vegetarise-%lu/VEG_SOCK", (unsigned long)getuid ());
+      name = getenv ("VEGETARISE_SOCKET");
+      if (!name || !*name)
+        {
+          sprintf (namebuf, "/tmp/vegetarise-%lu/VEG_SOCK",
+                   (unsigned long)getuid ());
+          name = namebuf;
+        }
 
       server_fd = find_socket (name);
       if (server_fd == -1)
@@ -1402,65 +1523,78 @@ main (int argc, char **argv)
     }
 
   
-  if (learn)
+  if (learn && !server)
     {
       FILE *veg_fp = NULL, *spam_fp = NULL;
+      unsigned int nwords;
 
-      if (argc != 2)
+      if (argc != 2 && argc != 3)
         usage ();
 
       hash_table_size = 4999;
       word_table = xcalloc (hash_table_size, sizeof *word_table);
 
-      learning = 1;
-      veg_fp = fopen (argv[0], "r");
-      if (!veg_fp)
-          die ("can't open `%s': %s\n", argv[0], strerror (errno));
-      spam_fp = fopen (argv[1], "r");
-      if (!spam_fp)
-        die ("can't open `%s': %s\n", argv[1], strerror (errno));
-
-      if (verbose)
-        info ("scanning vegetarian mail\n");
-
-      if (indirect)
+      if ( strcmp (argv[0], "-") )
         {
-          while ((fp = open_next_file (veg_fp, fnamebuf, sizeof fnamebuf)))
-            {
-              veg_count += parse_message (fnamebuf, fp, 0, 0);
-              fclose (fp);
-            }
+          veg_fp = fopen (argv[0], "r");
+          if (!veg_fp)
+            die ("can't open `%s': %s\n", argv[0], strerror (errno));
         }
-      else
-        veg_count += parse_message (argv[0], veg_fp, 0, 1);
-      fclose (veg_fp);
-        
-      if (verbose)
-        info ("scanning spam mail\n");
-      if (indirect)
+      if ( strcmp (argv[1], "-") )
         {
-          while ((fp = open_next_file (spam_fp, fnamebuf, sizeof fnamebuf)))
-            {
-              spam_count += parse_message (fnamebuf, fp, 1, 0);
-              fclose (fp);
-            }
+          spam_fp = fopen (argv[1], "r");
+          if (!spam_fp)
+            die ("can't open `%s': %s\n", argv[1], strerror (errno));
         }
-      else
-        spam_count += parse_message (argv[1], spam_fp, 0, 1);
-      fclose (spam_fp);
-          
-      if (verbose)
-        info ("computing probabilities\n");
+
+      if (argc == 3)
+        { 
+          info ("loading initial wordlist\n");
+          read_table (argv[2], &veg_count, &spam_count, &nwords);
+          info ("%u vegetarian, %u spam, %u words, %lu kb memory used\n",
+                veg_count, spam_count, nwords,
+                (unsigned long int)total_memory_used/1024);
+        }
+
+      if (veg_fp)
+        {
+          info ("scanning vegetarian mail\n");
+          if (indirect)
+            {
+              while ((fp = open_next_file (veg_fp, fnamebuf, sizeof fnamebuf)))
+                {
+                  veg_count += parse_message (fnamebuf, fp, 0, 0, ha);
+                  fclose (fp);
+                }
+            }
+          else
+            veg_count += parse_message (argv[0], veg_fp, 0, 1, ha);
+          fclose (veg_fp);
+        }
+
+      if (spam_fp)
+        {
+          info ("scanning spam mail\n");
+          if (indirect)
+            {
+              while ((fp = open_next_file (spam_fp, fnamebuf, sizeof fnamebuf)))
+                {
+                  spam_count += parse_message (fnamebuf, fp, 1, 0, ha);
+                  fclose (fp);
+                }
+            }
+          else
+            spam_count += parse_message (argv[1], spam_fp, 0, 1, ha);
+          fclose (spam_fp);
+        }
+      info ("computing probabilities\n");
       calc_probability (veg_count, spam_count);
       
-      if (verbose)
-        info ("writing table\n");
       write_table (veg_count, spam_count);
 
-      if (verbose)
-        info ("%u vegetarian, %u spam, %lu kb memory used\n",
-              veg_count, spam_count,
-              (unsigned long int)total_memory_used/1024);
+      info ("%u vegetarian, %u spam, %lu kb memory used\n",
+            veg_count, spam_count,
+            (unsigned long int)total_memory_used/1024);
     }
 #ifdef HAVE_PTH
   else if (server_fd != -1)
@@ -1476,13 +1610,15 @@ main (int argc, char **argv)
         die ("can't open `%s': %s\n", argv[0], strerror (errno));
       if (transact_request (server_fd, argc? argv[0]:"-", fp) > 90)
         {
+          close (server_fd);
           if (verbose)
             puts ("spam\n");
-          exit (1); /* FIXME: maybe we should invert the return value
-                       to avoid marking messages as spam in case of
-                       system errors. */
+          exit (0); 
         }
       close (server_fd);
+      exit (1); /* Non-Spam but we use false so that a
+                   system error does not lead false
+                   positives */
     }
 #endif /*HAVE_PTH*/
   else
@@ -1501,26 +1637,33 @@ main (int argc, char **argv)
         info ("%u vegetarian, %u spam, %u words, %lu kb memory used\n",
               veg_count, spam_count, nwords,
               (unsigned long int)total_memory_used/1024);
+      
+      ha = new_hit_array ();
+
       if (!argc)
         {
           if (indirect)
             {
               while ((fp = open_next_file (stdin, fnamebuf, sizeof fnamebuf)))
                 {
-                  parse_message (fnamebuf, fp, 0, 0);
+                  parse_message (fnamebuf, fp, 0, 0, ha);
                   fclose (fp);
-                  check_and_print (veg_count, spam_count, fnamebuf);
+                  check_and_print (veg_count, spam_count, fnamebuf, ha);
                 }
             }
           else
             {
-              parse_message ("-", stdin, -1, 0);
-              if ( check_spam (veg_count, spam_count) > 90)
+              parse_message ("-", stdin, -1, 0, ha);
+              if ( check_spam (veg_count, spam_count, ha) > 90)
                 {
                   if (verbose)
                     puts ("spam\n");
-                  exit (1);
+                  exit (0);
                 }
+              else
+                exit (1); /* Non-Spam but we use false so that a
+                             system error does not lead false
+                             positives */
             }
         }
       else
@@ -1538,15 +1681,15 @@ main (int argc, char **argv)
                   FILE *fp2;
                   while ((fp2 = open_next_file (fp,fnamebuf, sizeof fnamebuf)))
                     {
-                      parse_message (fnamebuf, fp2, 0, 0);
+                      parse_message (fnamebuf, fp2, 0, 0, ha);
                       fclose (fp2);
-                      check_and_print (veg_count, spam_count, fnamebuf);
+                      check_and_print (veg_count, spam_count, fnamebuf, ha);
                     }
                 }
               else
                 {
-                  parse_message (argv[0], fp, -1, 0);
-                  check_and_print (veg_count, spam_count, argv[0]);
+                  parse_message (argv[0], fp, -1, 0, ha);
+                  check_and_print (veg_count, spam_count, argv[0], ha);
                 }
               fclose (fp);
             }
