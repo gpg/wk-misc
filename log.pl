@@ -17,10 +17,11 @@
 #
 # I revised the perl script I sent you yesterday to use the info you
 # send in on stdin.  (I am appending the newer script to the end)
+#
+# $Revision: 1.2 $
 
 $cvsroot = $ENV{'CVSROOT'};
 $fromaddr = "cvs\@cvs.gnupg.org";
-
 # turn off setgid
 #
 $) = $(;
@@ -43,7 +44,7 @@ while (@ARGV) {
 	}
 }
 
-($logfile) || $logfile = "$cvsroot/CVSROOT/commitlog";
+($logfile) || ($logfile = "$cvsroot/CVSROOT/commitlog");
 
 $srepos = shift @files;
 $mailcmd = "| /usr/sbin/sendmail -t -oi";
