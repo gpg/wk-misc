@@ -1,3 +1,7 @@
+2003-12-29  Werner Koch  <wk@gnupg.org>
+
+	* addrutil.c (ProcessTexOp): Implemented modifier ":N=".
+
 2003-12-16  Werner Koch  <wk@gnupg.org>
 
 	* manifest-tool: Give hints on files not included in Manifest.

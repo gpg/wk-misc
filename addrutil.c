@@ -17,7 +17,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  */
 
-/* $Id: addrutil.c,v 1.2 2003-11-22 21:35:24 werner Exp $ */
+/* $Id: addrutil.c,v 1.3 2003-12-29 11:48:08 werner Exp $ */
 
 /* How to use:
 
@@ -57,7 +57,7 @@ example for such an TeX template:
 
 %% the next line contains a pseudo field which marks the
 %% start of a block which will be repeated for each record from the
-%% database.  You mway want to view this as a "while (not-database); do"
+%% database.  You way want to view this as a "while (not-database); do"
 % @@begin-record-block@@
 
 \begin{letter}{
@@ -67,6 +67,10 @@ example for such an TeX template:
 }
 
 \opening{Dear @@Email@@}
+%% The variable substitution above knows about a special format, e.g.:
+%% @@Email:N=,@@
+%% where included linefeeds are replaced by the string after the equal
+%% sign.
 
 we are glad to invite you to our annual bit party at the Bit breweries,
 located in Bitburg/Eifel.
@@ -1381,7 +1385,8 @@ PrintTexFile( int flushit )
 
     if( flushit && tex.end_block ) {
 	if( fseek(tex.fp, tex.end_block, SEEK_SET) ) {
-	    fprintf( stderr, PGMNAME": error seeking to offset %ld\n", tex.end_block );
+	    fprintf( stderr, PGMNAME": error seeking to offset %ld\n",
+                     tex.end_block );
 	    exit (1);
 	}
     }
@@ -1461,7 +1466,8 @@ ProcessTexOp( const char *op )
     else if( !strcasecmp(op, "next-record") && tex.in_record_block ) {
 	tex.end_block = ftell(tex.fp);
 	if( fseek(tex.fp, tex.begin_block, SEEK_SET) ) {
-	    fprintf (stderr,PGMNAME": error seeking to offset %ld\n", tex.begin_block );
+	    fprintf (stderr,PGMNAME": error seeking to offset %ld\n",
+                     tex.begin_block );
 	    exit (1);
 	}
 	return 1;
@@ -1470,6 +1476,11 @@ ProcessTexOp( const char *op )
 	fprintf (stderr,PGMNAME": pseudo op '%s' not allowed in this context\n", op );
     }
     else { /* take it as the key to the record data */
+        char *p = strchr (op, ':');
+
+        if (p) /* Strip modifier. */
+          *p++ = 0;
+
 	f = NULL;
 	for(buck = namebuckets[HashName(op)]; buck ; buck = buck->next )
 	    if( !strcasecmp(buck->ptr->name, op) ) {
@@ -1479,8 +1490,20 @@ ProcessTexOp( const char *op )
 	if( f ) {  /* we have an entry with this name */
 	    for(d=f->data ; d ; d = d->next )
 		if( d->activ ) {
-		    printf("%s%.*s", d->index > 1? "\\par ":"",
-					    (int)d->used, d->d );
+  		    printf("%s", d->index > 1? "\\par ":"");
+                    if (p && !strncmp (p, "N=", 2)) {
+                      size_t n;
+
+                      for (n=0; n < d->used; n++)
+                        if (d->d[n] == '\r')
+                          ;
+                        else if (d->d[n] == '\n')
+                          fputs (p+2, stdout);
+                        else
+                          putchar (((unsigned char *)d->d)[n]);
+                    }
+                    else
+                      printf("%.*s", (int)d->used, d->d );
 		}
 	}
     }
