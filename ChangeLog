@@ -1,3 +1,7 @@
+2002-12-06  Werner Koch  <wk@gnupg.org>
+
+	* webbsh.c: New.
+
 2002-06-30  Werner Koch  <wk@gnupg.org>
 
 	* mkdiff: New option --no-sign.
