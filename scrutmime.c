@@ -367,7 +367,7 @@ static void
 parse_message (FILE *fp)
 {
   char line[2000];
-  unsigned char buffer[200]; 
+  unsigned char buffer[1000]; 
   size_t buflen = 0;   
   size_t length;
   rfc822parse_t msg;
@@ -414,9 +414,13 @@ parse_message (FILE *fp)
             {
               int i;
               
-              printf ("# %d bytes base64:", (int)buflen);
+              printf ("# %4d bytes base64:", (int)buflen);
               for (i=0; i < buflen; i++)
-                printf (" %02X", buffer[i]);
+                {
+                  if (i && !(i % 16))
+                    printf ("\n#            0x%04X:", i);
+                  printf (" %02X", buffer[i]);
+                }
               putchar ('\n'); 
             }
           identify_binary (buffer, buflen);
