@@ -200,6 +200,6 @@ main( int argc, char **argv )
 
 /*
 Local Variables:
-compile-command: "gcc -Wall -g -o 8bit-inheader.o 8bit-in-header.c"
+compile-command: "gcc -Wall -g -o 8bit-in-header 8bit-in-header.c"
 End:
 */
