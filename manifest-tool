@@ -24,6 +24,7 @@ mode=check
 manifest="Manifest"
 tmp_manifest=".#Manifest.$$"
 tmp_allnames=
+tmp_localnames=
 LC_ALL=C
 
 # Helper constants
@@ -182,7 +183,23 @@ function check_sig(file, fileprint, a,    command, pos, len, n, line, arr, any)
   }
 }
           ' $manifest  
-    exit $?
+    save_exit=$?
+
+    # Now check whether files are not included in the Manifest
+    tmp_allnames="/tmp/check-manifest-1.$$"
+    awk '/^[ \t]*(\#|$)/ {next}; $1 != "$names$" {print $1}' \
+        $manifest | sort > $tmp_allnames
+    tmp_localnames="/tmp/check-manifest-2.$$"
+    ls *.c *.h *am *.S 2>/dev/null | sort > $tmp_localnames
+    tmp=`comm -3 $tmp_allnames $tmp_localnames`
+    rm $tmp_allnames $tmp_localnames
+    tmp_allnames=
+    tmp_localnames=
+    if [ -n "$tmp" ]; then
+        echo "warning: files not included:" $tmp
+    fi
+
+    exit $save_exit
 }
 
 
@@ -248,6 +265,7 @@ cleanup ()
 {
     [ -f "$tmp_manifest" ] && rm "$tmp_manifest"
     [ -n "$tmp_allnames" -a -f "$tmp_allnames" ] && rm "$tmp_allnames"
+    [ -n "$tmp_localnames" -a -f "$tmp_localnames" ] && rm "$tmp_localnames"
 }
 
 trap cleanup EXIT SIGINT SIGHUP SIGPIPE

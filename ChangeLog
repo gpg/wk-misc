@@ -1,3 +1,7 @@
+2003-12-16  Werner Koch  <wk@gnupg.org>
+
+	* manifest-tool: Give hints on files not included in Manifest.
+
 2003-11-22  Werner Koch  <wk@gnupg.org>
 
 	* addrutil.c (FinishRecord): For mode 0, escape quote colons.
