@@ -56,7 +56,7 @@ tar xzf "$pack-$prev_ver.tar.gz"
 #  .ber - BER encoded test stuff
 #  .png 
 #  .jpg
-find_args="-type f -name *.tlb"
+find_args="-type f -name *.tlb -or -name *.info -or -name *.info-[0-9]"
 for i in dvi ps eps pdf gmo der ber png jpg; do
     find_args="$find_args -or -name *.$i"
 done
@@ -68,7 +68,7 @@ echo "Diffing"
 tmp_name="$pack-$prev_ver-$curr_ver.diff.tmp"
 diff_name="$pack-$prev_ver-$curr_ver.diff"
 
-diff -urN "$pack-$prev_ver/" "$pack-$curr_ver/"  > $tmp_name || true
+LC_ALL=C TZ=UTC0 diff -urpP "$pack-$prev_ver/" "$pack-$curr_ver/"  > $tmp_name || true
 
 echo "Making patch file"
 
