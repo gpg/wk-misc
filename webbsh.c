@@ -22,6 +22,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <pwd.h>
 
@@ -62,6 +63,17 @@ xcalloc (size_t n, size_t m)
 }
 
 
+static void
+drop_privileges (void)
+{
+  if (setuid ( getuid () ) || getuid () != geteuid() || !setuid(0) )
+    { 
+      fprintf (stderr, "webbsh: failed to give up privileges: %s\n",  
+               strerror (errno));
+      exit (1);
+    }
+}
+
 /*  static char * */
 /*  xstrdup (const char *s) */
 /*  { */
@@ -69,6 +81,83 @@ xcalloc (size_t n, size_t m)
 /*    strcpy (p, s); */
 /*    return p; */
 /*  } */
+
+
+/* Check whether any of the files below directory is suid or sgid. */ 
+static void
+check_for_suid (const char *directory)
+{
+  pid_t pid;
+  int status;
+
+  if (strchr (directory, '\'') )
+    { 
+      fprintf (stderr, "webbsh: directory must not contain a `''\n");
+      exit (1);
+    }
+
+  /* we run setuid but we don't want to run find then - so lets fork. */
+  pid = fork ();
+  if ( pid == (pid_t)-1)
+    {
+      fprintf (stderr, "webbsh: fork failed: %s\n", strerror (errno));
+      exit (1);
+    }
+  
+  if (!pid)
+    { /* child */
+      FILE *fp;
+      char *cmd;
+      int esc, c, rc;
+
+      drop_privileges (); 
+      if (!geteuid () || !getuid ())
+        abort (); /* we are pretty paranoid. */
+
+      cmd = xmalloc ( strlen (directory) + 100);
+      strcpy (cmd, "/usr/bin/find '");
+      strcat (cmd, directory);
+      strcat (cmd, "' -type f  -perm +06000 -print");
+      fp = popen (cmd, "r");
+      free (cmd);
+      if (!fp)
+        {
+          fprintf (stderr, "webbsh: failed to run find utility: %s\n",
+                   strerror (errno)); 
+          exit (1);
+        }
+      esc = 0;
+      while ( (c=getc (fp)) != EOF)
+        {
+          if (!esc || esc == 2)
+            {
+              fputs ("webbsh: s[ug]id file `", stderr);
+              esc = 1;
+            }
+          if (c == '\n')
+            {
+              fputs ("' detected\n",stderr);
+              esc = 2;
+            }
+          else
+            putc (c, stderr);
+        }
+      if ( (rc=pclose (fp)) )
+        {
+          fprintf (stderr, "webbsh: find utility failed: rc=%d\n", rc);
+          exit (1);
+        }
+      exit (esc?1:0);
+    }
+
+  /* parent */
+  if ( waitpid (pid, &status, 0 ) == -1 || status)
+    {
+      fprintf (stderr, "webbsh: suspect files found\n");
+      exit (1);
+    }
+}
+
 
 
 static char **
@@ -121,7 +210,7 @@ main (int argc, char **argv)
       exit (1);
     }
 
-  if (getgroups (0, dummy_grplist) )
+  if ( getgroups (0, dummy_grplist) )
     { 
       fprintf (stderr, "webbsh: user `%s' must not"
                        " have any supplementary groups\n", ACCOUNT);
@@ -153,6 +242,8 @@ main (int argc, char **argv)
       exit (1);
     }
 
+  check_for_suid (directory);
+
   if (chroot (directory))
     { 
       fprintf (stderr, "webbsh: chroot `%s' failed: %s\n", directory, 
@@ -160,13 +251,7 @@ main (int argc, char **argv)
       exit (1);
     }
 
-  /* Give up privileges. */
-  if (setuid ( getuid () ) || getuid () != geteuid() || !setuid(0) )
-    { 
-      fprintf (stderr, "webbsh: failed to give up permissions: %s\n",  
-               strerror (errno));
-      exit (1);
-    }
+  drop_privileges ();
 
   if (!geteuid () || !getuid ())
     abort (); /* we are pretty paranoid. */
