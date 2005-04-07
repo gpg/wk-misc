@@ -78,12 +78,12 @@ This is a patch file to create version $curr_ver from $prev_ver.
 
 Please check the signature of this patch file:
 
-    zcat somepath/$pack-$prev_ver-$curr_ver.diff.gz | gpg --verify
+  bzcat somepath/$pack-$prev_ver-$curr_ver.diff.bz2 | gpg --verify
 
 Change to directory $pack-$prev_ver (or however you renamed it)
 and give this command:
 
-    zcat somepath/$pack-$prev_ver-$curr_ver.diff.gz | patch -p1
+  bzcat somepath/$pack-$prev_ver-$curr_ver.diff.bz2 | gpg | patch -p1
 
 It is a good idea to rename your current directory to $pack-$curr_ver now.
 
@@ -105,16 +105,16 @@ rm $tmp_name
 if [ $opt_sign = yes ]; then
 echo "Signing and compressing patch file"
 gpg --clearsign --not-dash-escaped -u 57548DCD \
-    < $diff_name | gzip --best > $diff_name.gz
+    < $diff_name | bzip2 --best > $diff_name.bz2
 else
 echo "compressing patch file"
-cat $diff_name | gzip --best > $diff_name.gz
+cat $diff_name | bzip2 --best > $diff_name.bz2
 fi
 rm $diff_name
 
 echo "Checking patch file"
 cd $pack-$prev_ver
-zcat ../$diff_name.gz | patch -s -p1
+bzcat ../$diff_name.bz2 | patch -s -p1
 rm $(find . -name "*.orig") 2>/dev/null || true
 cd ..
 
@@ -139,7 +139,7 @@ if ! diff -urP "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
 fi
 
 if [ $opt_sign = yes ]; then
-if ! zcat $diff_name.gz | gpg --batch --verify ; then
+if ! bzcat $diff_name.bz2 | gpg --batch --verify ; then
     exit 1
 fi
 fi
@@ -149,5 +149,5 @@ echo "cleaning up"
 rm -rf "$pack-$curr_ver"
 rm -rf "$pack-$prev_ver"
 
-echo "Patch file $diff_name.gz is good."
+echo "Patch file $diff_name.bz2 is good."
 
