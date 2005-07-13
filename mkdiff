@@ -1,6 +1,13 @@
 #!/bin/sh
 
 opt_sign=yes
+ext=bz2
+extz=j
+if [ "$1" == "--gzip-source" ]; then
+  ext=gz
+  extz=z
+  shift
+fi
 if [ "$1" == "--no-sign" ]; then
   opt_sign=no
   shift
@@ -19,13 +26,13 @@ fi
 
 set -e
 
-curr_ver=$(ls $pack-${vprf}*.tar.gz 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.gz/\1/"\
+curr_ver=$(ls $pack-${vprf}*.tar.${ext} 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.${ext}/\1/"\
 	   | sort -r -t '.' -n +0 -1 +1 -2 +2 | head -1 )
-if [ ! -f $pack-$curr_ver.tar.gz ]; then
+if [ ! -f $pack-$curr_ver.tar.$ext ]; then
     echo "mkdiff: no current version of package $pack found" >&2
     exit 1
 fi
-prev_ver=$(ls $pack-${vprf}*.tar.gz 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.gz/\1/"\
+prev_ver=$(ls $pack-${vprf}*.tar.${ext} 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.${ext}/\1/"\
 	   | sort -r -t '.' -n +0 -1 +1 -2 +2 | head -2 | tail -1 )
 if [ "$prev_ver" = "$curr_ver"  ]; then
     echo "mkdiff: no previous version of package $pack found" >&2
@@ -42,8 +49,8 @@ echo "Removing old directories"
 
 echo "Unpacking previous and current tar"
 
-tar xzf "$pack-$curr_ver.tar.gz"
-tar xzf "$pack-$prev_ver.tar.gz"
+tar x${extz}f "$pack-$curr_ver.tar.$ext"
+tar x${extz}f "$pack-$prev_ver.tar.$ext"
 # We remove some files from the directories because we assume
 # that they are either binary or can be build using the proper tools:
 #  .tlb - Windows  Type Library

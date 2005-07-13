@@ -1,3 +1,13 @@
+2005-07-13  Werner Koch  <wk@g10code.com>
+
+	* scrutmime.c (parse_message): Add a kludge to allow parsing
+	Exim generated bounces.
+
+2005-01-07  Werner Koch  <wk@g10code.com>
+
+	* addrutil.c (FinishRecord): Fixed change according to CVS done
+	back in May.
+
 2004-12-09  Werner Koch  <wk@g10code.com>
 
 	* sha1sum.c: New based on SHA1- code from gnupg and out md5sum.

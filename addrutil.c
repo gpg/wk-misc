@@ -17,7 +17,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
  */
 
-/* $Id: addrutil.c,v 1.4 2004-05-10 12:00:57 werner Exp $ */
+/* $Id: addrutil.c,v 1.5 2005-07-13 13:25:32 werner Exp $ */
 
 /* How to use:
 
@@ -1221,13 +1221,11 @@ FinishRecord()
                                 else
                                   putchar (*s);
                               }
+                            any = 1;
+                            need_tab = 1;
                           }
-                        else if (need_tab)
-                          putchar ('\t');
-			else if( any )
+			else if( any && !need_tab )
                           putchar(':');
-			any = 1;
-                        need_tab = 1;
 		    }
 		}
 		else {

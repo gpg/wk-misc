@@ -69,6 +69,7 @@ struct parse_info_s {
   enum transfer_encodings transfer_encoding;
   int test_base64; /* Set if we should decode and test base64 data. */
   int got_probe;
+  int no_mime;    /* Set if this is not a MIME message. */
 };
 
 
@@ -298,6 +299,7 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
       info->transfer_encoding = TE_NONE;
       info->test_base64 = 0;
       info->got_probe = 0;
+      info->no_mime = 0;
       ctx = rfc822parse_parse_field (msg, "Content-Type", -1);
       if (ctx)
         {
@@ -320,6 +322,14 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
             printf ("# Content-Type: %s/%s\n", s1?s1:"", s2?s2:"");
 
           rfc822parse_release_field (ctx);
+        }
+      else
+        {
+          p = rfc822parse_get_field (msg, "MIME-Version", -1, NULL);
+          if (p)
+            free (p);
+          else
+            info->no_mime = 1;
         }
 
       p = rfc822parse_get_field (msg, "Content-Transfer-Encoding", -1, &off);
@@ -374,7 +384,10 @@ parse_message (FILE *fp)
   unsigned int lineno = 0;
   int no_cr_reported = 0;
   struct parse_info_s info;
+  int body_lines = 0;
+  int skip_leading_empty_lines = 0;
 
+ restart:
   memset (&info, 0, sizeof info);
 
   msg = rfc822parse_open (message_cb, &info);
@@ -402,8 +415,31 @@ parse_message (FILE *fp)
           no_cr_reported = 1;
         }
 
+      if (skip_leading_empty_lines)
+        {
+          if (!length)
+            continue;
+          skip_leading_empty_lines = 0;
+        }
+
       if (rfc822parse_insert (msg, line, length))
 	die ("parser failed: %s", strerror (errno));
+
+      if (info.no_mime && body_lines < 50)
+        {
+          body_lines++;
+          if (!strncmp (line, "------ This is a copy of the message, "
+                        "including all the headers.", 64))
+            {
+              /* This may be followed by empty lines, thus we set a
+                 flag to skip them. */
+              skip_leading_empty_lines = 1;
+              body_lines = 500; /* Avoid going here a second time. */
+              rfc822parse_close (msg);
+              goto restart;
+            }
+        }
+
       
       if (info.got_probe && buflen)
         {
