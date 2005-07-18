@@ -417,8 +417,18 @@ parse_message (FILE *fp)
 
       if (skip_leading_empty_lines)
         {
+          if (skip_leading_empty_lines == 1)
+            {
+              /* Sometimes additional information follows the
+                 indication line indicated by 6 dashes.  Skip them
+                 before detecting empty lines. */
+              if (length && !strncmp (line , "------ ", 7))
+                continue;
+              skip_leading_empty_lines++;
+            }
           if (!length)
             continue;
+
           skip_leading_empty_lines = 0;
         }
 
