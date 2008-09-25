@@ -1,3 +1,7 @@
+2005-03-15  Werner Koch  <wk@g10code.de>
+
+	* mkdiff: Changed to use bzip2
+
 2005-07-18  Werner Koch  <wk@g10code.com>
 
 	* scrutmime.c (parse_message): Cope with aditional Exim generated

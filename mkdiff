@@ -3,6 +3,7 @@
 opt_sign=yes
 ext=bz2
 extz=j
+opt_with_po=no
 if [ "$1" == "--gzip-source" ]; then
   ext=gz
   extz=z
@@ -10,6 +11,10 @@ if [ "$1" == "--gzip-source" ]; then
 fi
 if [ "$1" == "--no-sign" ]; then
   opt_sign=no
+  shift
+fi
+if [ "$1" == "--with-po" ]; then
+  opt_with_po=yes
   shift
 fi
 
@@ -20,7 +25,7 @@ elif [ $# = 2 ] ; then
     pack="$1"
     vprf="$2"
 else
-    echo "usage: mkdiff [--no-sign] package-name [version-prefix]" >&2
+    echo "usage: mkdiff [--no-sign] [--with-po] package-name [version-prefix]" >&2
     exit 1
 fi
 
@@ -63,10 +68,12 @@ tar x${extz}f "$pack-$prev_ver.tar.$ext"
 #  .ber - BER encoded test stuff
 #  .png 
 #  .jpg
+tmp="dvi ps eps pdf gmo der ber png jpg"
 find_args="-type f -name *.tlb -or -name *.info -or -name *.info-[0-9]"
 for i in dvi ps eps pdf gmo der ber png jpg; do
     find_args="$find_args -or -name *.$i"
 done
+[ $opt_with_po = no ] && find_args="$find_args -or -name *.po -or -name *.pot"
 find $pack-${curr_ver} $pack-${prev_ver} `echo $find_args` 2>/dev/null \
      | xargs rm -f 2>/dev/null || true
 
@@ -111,7 +118,7 @@ rm $tmp_name
 
 if [ $opt_sign = yes ]; then
 echo "Signing and compressing patch file"
-gpg --clearsign --not-dash-escaped -u 57548DCD \
+gpg --clearsign --not-dash-escaped -u 1CE0C630 \
     < $diff_name | bzip2 --best > $diff_name.bz2
 else
 echo "compressing patch file"
