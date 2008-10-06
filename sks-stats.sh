@@ -55,7 +55,7 @@ echo '<!doctype html public "-//W3C//DTD HTML 4.0 Transitional//EN">
 <h1>Keyserver statistics for keys.gnupg.net</h1>
 <p>
 This table shows statistics for the keyservers in the
-keys.gnupg.org and http-keys.gnupg.org pools.
+keys.gnupg.net and http-keys.gnupg.net pools.
 </p>
 
 <table cellpadding=5 cellspacing=1 border=1 >
