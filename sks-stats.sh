@@ -2,33 +2,42 @@
 #
 
 # Example driver:
-# #!/bin/sh
-# 
-# outfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/index.html"
-# failedfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/failed-hosts"
-# 
-# rm "$failedfile.now" 2>/dev/null || true
-# $HOME/bin/sks-stats.sh --failed-hosts "$failedfile" >"$outfile".tmp 2>/dev/null
-# mv "$outfile".tmp "$outfile"
-# if [ -f "$failedfile.now" ]; then
-#    rm "$failedfile.now" 2>/dev/null
-#    mail -s "keys.gnupg.net status change detected" wk@gnupg.org < "$failedfile"
-# fi
-# 
+##!/bin/sh
+#
+#hostsfile="$HOME/bin/hosts.sks"
+#outfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/index.html"
+#failedfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/failed-hosts"
+#
+#rm "$failedfile.now" 2>/dev/null || true
+#$HOME/bin/sks-stats.sh --failed "$failedfile" --hosts "$hostsfile" >"$outfile".tmp 2>/dev/null
+#mv "$outfile".tmp "$outfile"
+#if [ -f "$failedfile.now" ]; then
+#   rm "$failedfile.now" 2>/dev/null
+#   ( echo "List of failed hosts:"
+#     cat  "$failedfile" ) |  mail -s "keys.gnupg.net status change detected" wk@gnupg.org
+#fi
+#
 
 
 function get_stats () {
    local host
    local port
 
-   host="$1"    
+   hostip="$1"    
+   host=""
    port="$2"
 
-  echo "retrieving $host:$port" >&2
+   if [ -n "$hostsfile" -a -f "$hostsfile" ]; then
+      host=$(grep "^$hostip" "$hostsfile" | awk '{print $2; exit}')
+   fi
+   if [ -z "$host" ]; then
+      host="$hostip"
+   fi
+   echo "retrieving $host:$port using $hostip" >&2
 
-  echo "Server $host $port"
-  ( wget -O - -T 30 -t 2 "http://$host:$port/pks/lookup?op=stats" || echo ) | \
-      awk -v failed="${failed_hosts_file}" -v hostip="$host" '
+  echo "Server $hostip $port"
+  ( wget -qO - -T 3 -t 1 "http://$host:$port/pks/lookup?op=stats" || echo ) | \
+     awk -v failed="${failed_hosts_file}" -v hostip="$hostip" -v hostn="$host" '
 /<\/table>/           {in_settings = 0; in_peers = 0; in_daily = 0}
 /<h2>Settings<\/h2>/  {in_settings = 1 }
 /<h2>Gossip Peers<\/h2>/ {in_peers = 1 }
@@ -57,7 +66,7 @@ END {
     for ( i in peers ) print "Peer " peers[i];
     for ( i in daily ) { print "Daily " i " " daily[i]  }
   } else {
-    print hostip >> failed
+    print hostip "  " hostn  >> failed
   }
 }
 '
@@ -65,18 +74,9 @@ echo "Timestamp $(date -u '+%F %T')"
 }
 
 
-function print_header () {
-echo '<!doctype html public "-//W3C//DTD HTML 4.0 Transitional//EN">
-<html>
-<head><title>Keyserver statistics for keys.gnupg.net</title></head>
-<body>
-<h1>Keyserver statistics for keys.gnupg.net</h1>
-<p>
-This table shows statistics for the keyservers in the
-keys.gnupg.net and http-keys.gnupg.net pools.
-</p>
-
-<table cellpadding=5 cellspacing=1 border=1 >
+function print_header2 () {
+echo "$1"
+echo '<table cellpadding=5 cellspacing=1 border=1 >
 <thead>
 <tr>
   <td>Host</td>
@@ -89,11 +89,33 @@ keys.gnupg.net and http-keys.gnupg.net pools.
 <tbody>'
 }
 
+function print_header () {
+echo '<!doctype html public "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+<title>Keyserver statistics for gnupg.net</title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+</head>
+<body>
+<h1>Keyserver statistics for gnupg.net</h1>
+<p>
+This table shows statistics for the keyservers in the
+keys.gnupg.net and http-keys.gnupg.net pools.
+</p>
+
+'
+}
+
+
+function print_footer2 () {
+echo '</tbody>
+</table>'
+}
+
 
 function print_footer () {
-echo '</tbody>
-</table>
-</body>
+print_footer2
+echo '</body>
 </html>'
 }
 
@@ -124,11 +146,11 @@ END { if (host) {
 
 host=""
 failed_hosts=no
-if [ "$1" == "--failed-hosts" ]; then
+if [ "$1" == "--failed" ]; then
     failed_hosts=yes
     failed_hosts_file_orig="$2"
     if [ -z "$failed_hosts_file_orig" ]; then
-        echo "usage: sks-stats.sh --failed-hosts FILENAME" >&2
+        echo "usage: sks-stats.sh --failed FILENAME" >&2
         exit 1
     fi
     shift
@@ -139,16 +161,28 @@ if [ "$1" == "--failed-hosts" ]; then
 else
     failed_hosts_file="/dev/null"
 fi
+if [ "$1" == "--hosts" ]; then
+    hostsfile="$2"
+    shift
+    shift
+else
+    hostsfile=""
+fi
 [ -n "$1" ] && host="$1"
 
 
 if [ -z "$host" ]; then
    print_header 
+   print_header2 "<h2>keys.gnupg.net</h2>"
    (
        host keys.gnupg.net | awk '/has address/ { print $4 }' \
            | while read host; do
            get_stats $host 11371 | make_row "hkp" 
        done
+   ) | sort
+   print_footer2
+   print_header2 "<h2>http-keys.gnupg.net</h2>"
+   (
        host http-keys.gnupg.net | awk '/has address/ { print $4 }' \
            | while read host; do
            get_stats $host 80 | make_row "http" 
