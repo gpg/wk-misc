@@ -57,7 +57,7 @@ END {
     for ( i in peers ) print "Peer " peers[i];
     for ( i in daily ) { print "Daily " i " " daily[i]  }
   } else {
-    print hostip > failed
+    print hostip >> failed
   }
 }
 '
