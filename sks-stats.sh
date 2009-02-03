@@ -1,6 +1,21 @@
 #!/bin/sh
 #
 
+# Example driver:
+# #!/bin/sh
+# 
+# outfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/index.html"
+# failedfile="/var/www/217.69.76.60/keystats.gnupg.net/htdocs/failed-hosts"
+# 
+# rm "$failedfile.now" 2>/dev/null || true
+# $HOME/bin/sks-stats.sh --failed-hosts "$failedfile" >"$outfile".tmp 2>/dev/null
+# mv "$outfile".tmp "$outfile"
+# if [ -f "$failedfile.now" ]; then
+#    rm "$failedfile.now" 2>/dev/null
+#    mail -s "keys.gnupg.net status change detected" wk@gnupg.org < "$failedfile"
+# fi
+# 
+
 
 function get_stats () {
    local host
@@ -12,7 +27,8 @@ function get_stats () {
   echo "retrieving $host:$port" >&2
 
   echo "Server $host $port"
-  wget -qO - -T 30 "http://$host:$port/pks/lookup?op=stats" | awk '
+  ( wget -O - -T 30 -t 2 "http://$host:$port/pks/lookup?op=stats" || echo ) | \
+      awk -v failed="${failed_hosts_file}" -v hostip="$host" '
 /<\/table>/           {in_settings = 0; in_peers = 0; in_daily = 0}
 /<h2>Settings<\/h2>/  {in_settings = 1 }
 /<h2>Gossip Peers<\/h2>/ {in_peers = 1 }
@@ -40,6 +56,8 @@ END {
     print "Total  " nkeys
     for ( i in peers ) print "Peer " peers[i];
     for ( i in daily ) { print "Daily " i " " daily[i]  }
+  } else {
+    print hostip > failed
   }
 }
 '
@@ -71,12 +89,14 @@ keys.gnupg.net and http-keys.gnupg.net pools.
 <tbody>'
 }
 
+
 function print_footer () {
 echo '</tbody>
 </table>
 </body>
 </html>'
 }
+
 
 function make_row () {
     awk -v scheme=$1 '
@@ -103,6 +123,22 @@ END { if (host) {
 
 
 host=""
+failed_hosts=no
+if [ "$1" == "--failed-hosts" ]; then
+    failed_hosts=yes
+    failed_hosts_file_orig="$2"
+    if [ -z "$failed_hosts_file_orig" ]; then
+        echo "usage: sks-stats.sh --failed-hosts FILENAME" >&2
+        exit 1
+    fi
+    shift
+    shift
+    failed_hosts_file="${failed_hosts_file_orig}.tmp"
+    : >> "${failed_hosts_file_orig}"
+    : > "${failed_hosts_file}"
+else
+    failed_hosts_file="/dev/null"
+fi
 [ -n "$1" ] && host="$1"
 
 
@@ -123,4 +159,12 @@ else
   get_stats $host 11371 | make_row "hkp"
 fi
 print_footer
- 
+if [ $failed_hosts = "yes" ]; then
+    if cmp "${failed_hosts_file_orig}" "${failed_hosts_file}" >/dev/null ; then
+        rm "${failed_hosts_file}"
+    else
+        echo "changes in failed hosts detected" >&2
+        mv "${failed_hosts_file}" "${failed_hosts_file_orig}"
+        : > "${failed_hosts_file_orig}.now"
+    fi
+fi
