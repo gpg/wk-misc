@@ -70,6 +70,8 @@ struct parse_info_s {
   int test_base64; /* Set if we should decode and test base64 data. */
   int got_probe;
   int no_mime;    /* Set if this is not a MIME message. */
+  int top_seen;
+  int wk_seen;
 };
 
 
@@ -319,7 +321,13 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
             info->mime_type = MT_IMAGE;
 
           if (verbose)
-            printf ("# Content-Type: %s/%s\n", s1?s1:"", s2?s2:"");
+            {
+              printf ("# Content-Type: %s/%s", s1?s1:"", s2?s2:"");
+              s1 = rfc822parse_query_parameter (ctx, "charset", 0);
+              if (s1)
+                printf ("; charset=%s", s1);
+              putchar ('\n');
+            }
 
           rfc822parse_release_field (ctx);
         }
@@ -332,6 +340,27 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
             info->no_mime = 1;
         }
 
+      if (verbose)
+        {
+          const char *s1;
+
+          p = rfc822parse_get_field (msg, "Content-Disposition", -1, NULL);
+          if (p)
+            {
+              printf ("# %s\n", p);
+              free (p);
+            }
+
+          ctx = rfc822parse_parse_field (msg, "Content-Disposition", -1);
+          if (ctx)
+            {
+              s1 = rfc822parse_query_parameter (ctx, "filename", 0);
+              if (s1)
+                printf ("# Content-Disposition has filename=`%s'\n", s1);
+              rfc822parse_release_field (ctx);
+            }
+        }
+
       p = rfc822parse_get_field (msg, "Content-Transfer-Encoding", -1, &off);
       if (p)
         {
@@ -339,6 +368,36 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
           if (!strcmp (p+off, "base64"))
             info->transfer_encoding = TE_BASE64;
           free (p);
+        }
+
+      if (!info->top_seen)
+        {
+          info->top_seen = 1;
+          p = rfc822parse_get_field (msg, "To", -1, NULL);
+          if (p)
+            {
+              if ( strstr (p, "Werner Koch") )
+                {
+                  if (verbose)
+                    fputs ("# Found known name in To\n", stdout);
+                  info->wk_seen = 1;
+                }
+              free (p);
+            }
+          if (!info->wk_seen)
+            {
+              p = rfc822parse_get_field (msg, "Cc", -1, NULL);
+              if (p)
+                {
+                  if ( strstr (p, "Werner Koch") )
+                    {
+                      if (verbose)
+                        fputs ("# Found known name in Cc\n", stdout);
+                      info->wk_seen = 1;
+                    }
+                  free (p);
+                }
+            }
         }
 
       if ((info->mime_type == MT_OCTET_STREAM
@@ -350,7 +409,7 @@ message_cb (void *opaque, rfc822parse_event_t event, rfc822parse_t msg)
         {
           if (!quiet)
             fputs ("HTML\n", stdout);
-          if (opt_match_html)
+          if (opt_match_html && !info->wk_seen)
             exit (0);
         }
 
@@ -617,6 +676,6 @@ main (int argc, char **argv)
 
 /*
 Local Variables:
-compile-command: "gcc -Wall -g -o scrutmime rfc822parse.c scrutmime.c"
+compile-command: "gcc -Wall -Wno-pointer-sign -g -o scrutmime rfc822parse.c scrutmime.c"
 End:
 */

@@ -1,0 +1,65 @@
+#!/bin/sh
+# Count number of gpg4win downloads.
+# usage: gpg4win-stats 1.0.1
+#  Replace 1.0.2 by the real version number
+
+set -e 
+ver="$1"
+
+cd /var/log
+
+( zcat ftp.log.{9,8,7,6,5,4,3,2,1}.gz 2>/dev/null ; 
+  cat ftp.log{.0,} 2>/dev/null ) \
+ | awk -v ver="$ver" '
+BEGIN { sum_std = 0; sum_light = 0; sum_src = 0
+        sum_std_s = 0; sum_light_s = 0; sum_src_s = 0  }
+
+$9 != "retrieved" { next }
+
+$10 == "\"/gpg4win/gpg4win-" ver ".exe\","       { sum_std++ }
+$10 == "\"/gpg4win/gpg4win-light-" ver ".exe\"," { sum_light++ }
+$10 == "\"/gpg4win/gpg4win-src-" ver ".exe\","   { sum_src++ }
+$10 == "\"/gpg4win/gpg4win-" ver ".exe.sig\","       { sum_std_s++ }
+$10 == "\"/gpg4win/gpg4win-light-" ver ".exe.sig\"," { sum_light_s++ }
+$10 == "\"/gpg4win/gpg4win-src-" ver ".exe.sig\","   { sum_src_s++ }
+
+first_date == "" { first_date = $1 " " $2 }
+                 { last_date = $1 " " $2 }
+
+END {
+      print "FTP downloads from [" first_date "] to [" last_date "]"
+      print "gpg4win-" ver ".exe:       " sum_std "  (" sum_std_s ")"
+      print "gpg4win-light-" ver ".exe: " sum_light "  (" sum_light_s ")"
+      print "gpg4win-src-" ver ".exe:   " sum_src "  (" sum_src_s ")"
+    }
+'
+
+cd boa
+
+( zcat access_log.{9,8,7,6,5,4,3,2,1}.gz 2>/dev/null; 
+  cat access_log{.0,} 2>/dev/null ) \
+ | awk -v ver="$ver" '
+BEGIN { sum_std = 0; sum_light = 0; sum_src = 0 
+        sum_std_s = 0; sum_light_s = 0; sum_src_s = 0  }
+
+$7 != "\"GET" { next }
+$10 != 200    { next}
+
+$8 == "/gpg4win-" ver ".exe"       { sum_std++ }
+$8 == "/gpg4win-light-" ver ".exe" { sum_light++ }
+$8 == "/gpg4win-src-" ver ".exe"   { sum_src++ }
+$8 == "/gpg4win-" ver ".exe.sig"        { sum_std_s++ }
+$8 == "/gpg4win-light-" ver ".exe.sig"  { sum_light_s++ }
+$8 == "/gpg4win-src-" ver ".exe.sig"    { sum_src_s++ }
+
+first_date == "" { first_date = $5 }
+                 { last_date = $5 }
+
+END {
+      print "HTTP downloads from " first_date "] to " last_date "]"
+      print "gpg4win-" ver ".exe:       " sum_std "  (" sum_std_s ")"
+      print "gpg4win-light-" ver ".exe: " sum_light "  (" sum_light_s ")"
+      print "gpg4win-src-" ver ".exe:   " sum_src "  (" sum_src_s ")"
+    }
+'
+

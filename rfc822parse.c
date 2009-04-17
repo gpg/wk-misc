@@ -766,6 +766,7 @@ parse_field (HDR_LINE hdr)
   } tspecial_header[] = {
     { "Content-Type", 12},
     { "Content-Transfer-Encoding", 25},
+    { "Content-Disposition", 19},
     { NULL, 0}
   };
   const char *delimiters;
@@ -1249,6 +1250,6 @@ main (int argc, char **argv)
 
 /*
 Local Variables:
-compile-command: "gcc -Wall -g -DTESTING -o rfc822parse rfc822parse.c"
+compile-command: "gcc -Wall -Wno-pointer-sign -g -DTESTING -o rfc822parse rfc822parse.c"
 End:
 */
