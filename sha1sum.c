@@ -1,6 +1,6 @@
 /* sha1sum.c - print SHA-1 Message-Digest Algorithm 
  * Copyright (C) 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
- * Copyright (C) 2004 g10 Code GmbH
+ * Copyright (C) 2004, 2009 g10 Code GmbH
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,6 +20,8 @@
 /* SHA-1 coden take from gnupg 1.3.92. 
 
    Note, that this is a simple tool to be used for MS Windows.
+
+   2009-10-21 wk  Added -c option.
 */
 
 #include <stdio.h>
@@ -27,6 +29,15 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+
+
+#define PGM "sha1sum"
+
+/* Length of the digest.  */
+#define DIGEST_LENGTH 20
+/* Offset where the name starts in the file.  */
+#define NAME_OFFSET (DIGEST_LENGTH*2+2)
+
 
 #undef BIG_ENDIAN_HOST
 typedef unsigned int u32;
@@ -215,8 +226,10 @@ transform( SHA1_CONTEXT *hd, unsigned char *data )
  * of INBUF with length INLEN.
  */
 static void
-sha1_write( SHA1_CONTEXT *hd, unsigned char *inbuf, size_t inlen)
+sha1_write( SHA1_CONTEXT *hd, void *data, size_t datalen)
 {
+  unsigned char *inbuf = data;
+
     if( hd->count == 64 ) { /* flush the buffer */
 	transform( hd, hd->buf );
 	hd->count = 0;
@@ -225,21 +238,21 @@ sha1_write( SHA1_CONTEXT *hd, unsigned char *inbuf, size_t inlen)
     if( !inbuf )
 	return;
     if( hd->count ) {
-	for( ; inlen && hd->count < 64; inlen-- )
+	for( ; datalen && hd->count < 64; datalen-- )
 	    hd->buf[hd->count++] = *inbuf++;
 	sha1_write( hd, NULL, 0 );
-	if( !inlen )
+	if( !datalen )
 	    return;
     }
 
-    while( inlen >= 64 ) {
+    while( datalen >= 64 ) {
 	transform( hd, inbuf );
 	hd->count = 0;
 	hd->nblocks++;
-	inlen -= 64;
+	datalen -= 64;
 	inbuf += 64;
     }
-    for( ; inlen && hd->count < 64; inlen-- )
+    for( ; datalen && hd->count < 64; datalen-- )
 	hd->buf[hd->count++] = *inbuf++;
 }
 
@@ -311,49 +324,173 @@ sha1_final(SHA1_CONTEXT *hd)
 #undef X
 }
 
+
+/* Stats for the check fucntion.  */
+static unsigned int filecount;
+static unsigned int readerrors;
+static unsigned int checkcount;
+static unsigned int matcherrors;
 
+static int
+hash_file (const char *fname, const char *expected)
+{
+  FILE *fp;
+  char buffer[4096];
+  size_t n;
+  SHA1_CONTEXT ctx;
+  int i;
+      
+  filecount++;
+  fp = fopen (fname, "rb");
+  if (!fp)
+    {
+      fprintf (stderr, PGM": can't open `%s': %s\n",
+               fname, strerror (errno));
+      if (expected)
+        printf ("%s: FAILED open\n", fname);
+      readerrors++;
+      return -1;
+    }
+  sha1_init (&ctx);
+  while ( (n = fread (buffer, 1, sizeof buffer, fp)))
+    sha1_write (&ctx, buffer, n);
+  if (ferror (fp))
+    {
+      fprintf (stderr, PGM": error reading `%s': %s\n",
+               fname, strerror (errno));
+      fclose (fp);
+      if (expected)
+        printf ("%s: FAILED read\n", fname);
+      readerrors++;
+      return -1;
+    }
+  sha1_final (&ctx);
+  fclose (fp);
+
+  checkcount++;
+  for (i=0; i < DIGEST_LENGTH; i++)
+    snprintf (buffer+2*i, 10, "%02x", ctx.buf[i]);
+  if (expected)
+    {
+      if (strcmp (buffer, expected))
+        {
+          printf ("%s: FAILED\n", fname);
+          matcherrors++;
+          return -1;
+        }
+      printf ("%s: OK\n", fname);
+    }
+  else
+    printf ("%s  %s\n", buffer, fname);
+  return 0;
+}
+
+
+static int
+check_file (const char *fname)
+{
+  FILE *fp;
+  char line[4096];
+  char *p;
+  size_t n;
+  int rc = 0;
+      
+  fp = fopen (fname, "r");
+  if (!fp)
+    {
+      fprintf (stderr, PGM": can't open `%s': %s\n",
+               fname, strerror (errno));
+      return -1;
+    }
+
+  while ( fgets (line, sizeof (line)-1, fp) )
+    {
+      n = strlen(line);
+      if (!n || line[n-1] != '\n')
+        {
+          fprintf (stderr, PGM": error reading `%s': %s\n", fname,
+                   feof (fp)? "last linefeed missing":"line too long");
+          rc = -1;
+          break;
+        }
+      line[--n] = 0;
+      if (!*line)
+        continue;  /* Ignore empty lines.  */
+      if (n < NAME_OFFSET 
+          || line[NAME_OFFSET-2] != ' ' || line[NAME_OFFSET-1] != ' ')
+        {
+          fprintf (stderr, PGM": error parsing `%s': %s\n", fname,
+                   "invalid line");
+          rc = -1;
+          continue;
+        }
+      /* Lowercase the checksum.  */
+      line[NAME_OFFSET-2] = 0;
+      for (p=line; *p; p++)
+        if (*p >= 'A' && *p <= 'Z')
+          *p |= 0x20;
+      /* Hash the file.  */
+      if (hash_file (line+NAME_OFFSET, line))
+        rc = -1;
+    }
+
+  if (ferror (fp))
+    {
+      fprintf (stderr, PGM":error reading `%s': %s\n",
+               fname, strerror (errno));
+      rc = -1;
+    }
+  fclose (fp);
+  
+  return rc;
+}
 
 
 int 
 main (int argc, char **argv)
 {
+  int check = 0;
+  int rc = 0;
+
   assert (sizeof (u32) == 4);
 
-  if (argc < 2)
+  if (argc)
     {
-      fprintf (stderr, "usage: sha1sum filenames\n");
+      argc--; argv++; 
+    }
+
+  if (argc && !strcmp (*argv, "-c"))
+    {
+      check = 1;
+      argc--; argv++;
+    }
+  if (!argc)
+    {
+      fprintf (stderr, "usage: sha1sum [-c] filenames\n");
       exit (1);
     }
-  for (argc--, argv++; argc; argv++, argc--)
+  for (; argc; argv++, argc--)
     {
-      FILE *fp;
-      char buffer[4096];
-      size_t n;
-      SHA1_CONTEXT ctx;
-      int i;
-      
-      fp = fopen (*argv, "rb");
-      if (!fp)
+      if (check)
         {
-          fprintf (stderr, "can't open `%s': %s\n", *argv, strerror (errno));
-          exit (1);
+          if (check_file (*argv))
+            rc = 1;
         }
-      sha1_init (&ctx);
-      while ( (n = fread (buffer, 1, sizeof buffer, fp)))
-        sha1_write (&ctx, buffer, n);
-      if (ferror (fp))
+      else
         {
-          fprintf (stderr, "error reading `%s': %s\n", *argv,strerror (errno));
-          exit (1);
+          if (hash_file (*argv, NULL))
+            rc = 1;
         }
-      sha1_final (&ctx);
-      fclose (fp);
-      
-      for (i=0; i < 20; i++)
-        printf ("%02x", ctx.buf[i]);
-      printf ("  %s\n", *argv);
     }
-  return 0;
+
+  if (check && readerrors)
+    fprintf (stderr, PGM": WARNING: %u of %u listed files "
+             "could not be read\n", readerrors, filecount);
+  if (check && matcherrors)
+    fprintf (stderr, PGM": WARNING: %u of %u computed checksums "
+             "did NOT match\n", matcherrors, checkcount);
+
+  return rc;
 }
 
 /*
