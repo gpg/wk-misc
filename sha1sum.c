@@ -38,6 +38,12 @@
 /* Offset where the name starts in the file.  */
 #define NAME_OFFSET (DIGEST_LENGTH*2+2)
 
+/* Under Windows create in bnary mode.  Under Unix in text mode.  */
+#ifdef _WIN32
+#define CREATE_BINARY 1
+#else
+#define CREATE_BINARY 0
+#endif
 
 #undef BIG_ENDIAN_HOST
 typedef unsigned int u32;
@@ -332,7 +338,7 @@ static unsigned int checkcount;
 static unsigned int matcherrors;
 
 static int
-hash_file (const char *fname, const char *expected)
+hash_file (const char *fname, int binary, const char *expected)
 {
   FILE *fp;
   char buffer[4096];
@@ -341,7 +347,7 @@ hash_file (const char *fname, const char *expected)
   int i;
       
   filecount++;
-  fp = fopen (fname, "rb");
+  fp = fopen (fname, binary? "rb":"r");
   if (!fp)
     {
       fprintf (stderr, PGM": can't open `%s': %s\n",
@@ -381,7 +387,7 @@ hash_file (const char *fname, const char *expected)
       printf ("%s: OK\n", fname);
     }
   else
-    printf ("%s  %s\n", buffer, fname);
+    printf ("%s %c%s\n", buffer, binary? '*':' ',fname);
   return 0;
 }
 
@@ -394,6 +400,7 @@ check_file (const char *fname)
   char *p;
   size_t n;
   int rc = 0;
+  int binary;
       
   fp = fopen (fname, "r");
   if (!fp)
@@ -416,8 +423,7 @@ check_file (const char *fname)
       line[--n] = 0;
       if (!*line)
         continue;  /* Ignore empty lines.  */
-      if (n < NAME_OFFSET 
-          || line[NAME_OFFSET-2] != ' ' || line[NAME_OFFSET-1] != ' ')
+      if (n < NAME_OFFSET || line[NAME_OFFSET-2] != ' ')
         {
           fprintf (stderr, PGM": error parsing `%s': %s\n", fname,
                    "invalid line");
@@ -425,12 +431,13 @@ check_file (const char *fname)
           continue;
         }
       /* Lowercase the checksum.  */
+      binary = line[NAME_OFFSET-1] == '*';
       line[NAME_OFFSET-2] = 0;
       for (p=line; *p; p++)
         if (*p >= 'A' && *p <= 'Z')
           *p |= 0x20;
       /* Hash the file.  */
-      if (hash_file (line+NAME_OFFSET, line))
+      if (hash_file (line+NAME_OFFSET, binary, line))
         rc = -1;
     }
 
@@ -478,7 +485,7 @@ main (int argc, char **argv)
         }
       else
         {
-          if (hash_file (*argv, NULL))
+          if (hash_file (*argv, CREATE_BINARY, NULL))
             rc = 1;
         }
     }
