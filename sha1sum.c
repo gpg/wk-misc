@@ -41,7 +41,7 @@
 # include <fcntl.h>
 #endif
 
-#define VERSION "1.1"
+#define VERSION "1.2"
 #if defined(BUILD_MD5SUM)
 # define PGM "md5sum"
 # define DIGEST_LENGTH 16
