@@ -29,6 +29,7 @@
 
    2009-10-21 wk  Added -c option.  Switch to GPL-3.  Escape filenames.
    2009-10-22 wk  Support MD5 and SHA256.
+   2010-04-16 wk  Add option -0.
 */
 
 #include <stdio.h>
@@ -922,10 +923,71 @@ check_file (const char *fname)
 }
 
 
+static int
+hash_list (void)
+{
+  int rc = 0;
+  int ready = 0;
+  int c;
+  char namebuf[4096];
+  size_t n = 0;
+  unsigned long lastoff = 0;
+  unsigned long off = 0;
+
+#ifdef _WIN32
+  setmode (fileno (stdin), O_BINARY);
+#endif
+  do
+    {
+      if ((c = getc (stdin)) == EOF)
+        {
+          if (ferror (stdin))
+            {
+              fprintf (stderr, PGM":error reading `%s' at offset %lu: %s\n",
+                       "[stdin]", off, strerror (errno));
+              rc = -1;
+              break;
+            }
+          /* Note: The Nul is a delimter and not a terminator.  */
+          c = 0;
+          ready = 1;
+        }
+      if (n >= sizeof namebuf)
+        {
+          fprintf (stderr, PGM": error reading `%s': "
+                   "filename at offset %lu too long\n",
+                   "[stdin]", lastoff);
+          rc = -1;
+          break;
+        }
+      namebuf[n++] = c;
+      off++;
+      if (!c)
+        {
+          if (*namebuf && hash_file (namebuf, NULL))
+            rc = -1;
+          n = 0;
+          lastoff = off;
+        }
+    }
+  while (!ready);
+  
+  return rc;
+}
+
+
+static void
+usage (void)
+{
+  fprintf (stderr, "usage: sha1sum [-c|-0] [--] FILENAMES|-\n");
+  exit (1);
+}
+
 int 
 main (int argc, char **argv)
 {
   int check = 0;
+  int filelist = 0;
   int rc = 0;
 
   assert (sizeof (u32) == 4);
@@ -952,31 +1014,49 @@ main (int argc, char **argv)
              stdout);
       exit (0);
     }
-  if (argc && !strcmp (*argv, "-c"))
+  while (argc && argv[0][0] == '-' && argv[0][1])
     {
-      check = 1;
-      argc--; argv++;
-    }
-  if (argc && !strcmp (*argv, "--"))
-    {
-      argc--; argv++;
-    }
-  if (!argc)
-    {
-      fprintf (stderr, "usage: sha1sum [-c] FILENAMES|-\n");
-      exit (1);
-    }
-  for (; argc; argv++, argc--)
-    {
-      if (check)
+      if (!strcmp (*argv, "-c"))
+        check = 1;
+      else if (argc && !strcmp (*argv, "-0"))
+        filelist = 1;
+      else if (!strcmp (*argv, "--"))
         {
-          if (check_file (*argv))
-            rc = 1;
+          argc--; argv++;
+          break;
         }
       else
+        usage ();
+      argc--; argv++;
+    }
+
+  if (filelist && check)
+    usage ();
+  if (!argc)
+    usage ();
+
+  if (filelist)
+    {
+      /* With option -0 a dash must be given as filename.  */
+      if (argc != 1 || strcmp (argv[0], "-"))
+        usage ();
+      if (hash_list ())
+        rc = 1;
+    }
+  else
+    {
+      for (; argc; argv++, argc--)
         {
-          if (hash_file (*argv, NULL))
-            rc = 1;
+          if (check)
+            {
+              if (check_file (*argv))
+                rc = 1;
+            }
+          else
+            {
+              if (hash_file (*argv, NULL))
+                rc = 1;
+            }
         }
     }
 
