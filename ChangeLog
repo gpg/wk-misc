@@ -1,3 +1,11 @@
+2010-07-27  Werner Koch  <wk@g10code.com>
+
+	* sha1sum.c (unescapefname): Fix unescaping.
+
+2009-09-02  Werner Koch  <wk@g10code.com>
+
+	* mkdiff: Fix sort(1) syntax.
+
 2006-11-21  Werner Koch  <wk@g10code.com>
 
 	* scrutmime.c (message_cb): Don't exit for HTML but my name in the

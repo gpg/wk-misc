@@ -14,7 +14,7 @@
 #if [ -f "$failedfile.now" ]; then
 #   rm "$failedfile.now" 2>/dev/null
 #   ( echo "List of failed hosts:"
-#     cat  "$failedfile" ) |  mail -s "keys.gnupg.net status change detected" wk@gnupg.org
+#     cat  "$failedfile" ) |  mail -s "keys.gnupg.net status change detected" keystats-gnupg-net@gnupg.org
 #fi
 #
 
@@ -36,8 +36,10 @@ function get_stats () {
    echo "retrieving $host:$port using $hostip" >&2
 
   echo "Server $hostip $port"
-  ( wget -qO - -T 3 -t 1 "http://$host:$port/pks/lookup?op=stats" || echo ) | \
-     awk -v failed="${failed_hosts_file}" -v hostip="$hostip" -v hostn="$host" '
+  # Note that versions of wget < 1.10 can't override 'Host:'.
+  (wget -qO - -T 30 -t 3 --no-cache --header "Host: $host:$port" \
+     "http://$hostip:$port/pks/lookup?op=stats" || echo) |\
+    awk -v failed="${failed_hosts_file}" -v hostip="$hostip" -v hostn="$host" '
 /<\/table>/           {in_settings = 0; in_peers = 0; in_daily = 0}
 /<h2>Settings<\/h2>/  {in_settings = 1 }
 /<h2>Gossip Peers<\/h2>/ {in_peers = 1 }
@@ -115,7 +117,15 @@ echo '</tbody>
 
 function print_footer () {
 print_footer2
-echo '</body>
+
+echo '<br><br><br><br><br><hr>
+<div align="left"><font size="-1">
+Notifications on status changes are automatically posted to the
+<a href="http://lists.gnupg.org/mailman/listinfo/keystats-gnupg-net"
+>keystats-gnupg-net</a> mailing list.  You are welcome to subscribe
+to this announce-only list.
+</font></div>
+</body>
 </html>'
 }
 

@@ -32,13 +32,13 @@ fi
 set -e
 
 curr_ver=$(ls $pack-${vprf}*.tar.${ext} 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.${ext}/\1/"\
-	   | sort -r -t '.' -n +0 -1 +1 -2 +2 | head -1 )
+	   | sort -r -t '.' -n -k 1,1 -k 2,2 -k 3,3 -k 4,4 | head -1 )
 if [ ! -f $pack-$curr_ver.tar.$ext ]; then
     echo "mkdiff: no current version of package $pack found" >&2
     exit 1
 fi
 prev_ver=$(ls $pack-${vprf}*.tar.${ext} 2>/dev/null | sed "s/^$pack-\(.*\)\.tar\.${ext}/\1/"\
-	   | sort -r -t '.' -n +0 -1 +1 -2 +2 | head -2 | tail -1 )
+	   | sort -r -t '.' -n -k 1,1 -k 2,2 -k 3,3 -k 4,4 | head -2 | tail -1 )
 if [ "$prev_ver" = "$curr_ver"  ]; then
     echo "mkdiff: no previous version of package $pack found" >&2
     exit 1
@@ -118,7 +118,7 @@ rm $tmp_name
 
 if [ $opt_sign = yes ]; then
 echo "Signing and compressing patch file"
-gpg --clearsign --not-dash-escaped -u 1CE0C630 \
+gpg2 --clearsign --not-dash-escaped -u 1CE0C630 \
     < $diff_name | bzip2 --best > $diff_name.bz2
 else
 echo "compressing patch file"
@@ -153,7 +153,7 @@ if ! diff -urP "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
 fi
 
 if [ $opt_sign = yes ]; then
-if ! bzcat $diff_name.bz2 | gpg --batch --verify ; then
+if ! bzcat $diff_name.bz2 | gpg2 --batch --verify ; then
     exit 1
 fi
 fi
