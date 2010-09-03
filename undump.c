@@ -1,9 +1,9 @@
 /* undump - Hex undump tool
- *	Copyright (C) 2000 Werner Koch (dd9jn)
+ * Copyright (C) 2000, 2010 Werner Koch (dd9jn)
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -12,8 +12,11 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * 2010-09-02 wk  Changed to GPLv3.
+ *                Fixed detection of write errors.  Reported by Marcus
+ *                Brinkmann
  */
 
 #include <stdio.h>
@@ -68,6 +71,11 @@ main (int argc, char **argv )
   if (ferror (stdin))
     {
       fprintf (stderr, "undump: read error\n");
+      return 1;
+    }
+  if (ferror (stdout))
+    {
+      fprintf (stderr, "undump: write error\n");
       return 1;
     }
 
