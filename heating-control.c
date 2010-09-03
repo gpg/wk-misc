@@ -275,6 +275,7 @@ volatile unsigned int current_time;
 /* /\* IR interrupt counter.  *\/ */
 /* volatile unsigned int ir_int_counter; */
 
+
 /* Constants for the operation modes.  The values are assumed to be
    ascending starting from 0.  They are used as an index; the value
    for deactivated is treated especially, though.  They also index the
