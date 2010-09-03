@@ -272,6 +272,8 @@ unsigned char e2_init_marker EEMEM;
 /* The current time measured in minutes.  */
 volatile unsigned int current_time;
 
+/* /\* IR interrupt counter.  *\/ */
+/* volatile unsigned int ir_int_counter; */
 
 /* Constants for the operation modes.  The values are assumed to be
    ascending starting from 0.  They are used as an index; the value
@@ -360,6 +362,7 @@ signed long avg_temperature;
 #define RELAY_PUMP_BIT   (3)
 #define RELAY_DAY        (PORTB)
 #define RELAY_DAY_BIT    (4)
+
 
 /* The hysteresis of the boiler temperature measured in 0.1 degress.  */
 #define BOILER_HYSTERESIS 15
@@ -866,7 +869,7 @@ ISR (TIMER2_COMP_vect)
       actionflags2.show_target_temp = !actionflags2.show_target_temp;
    }
 
-  /* Run the main loop very 35ms.  */
+  /* Run the main loop every 35ms.  */
   if (!(clock % 35))
     {
       actionflags.run_main = 1;
@@ -901,6 +904,14 @@ ISR (USART_RXC_vect)
     } 
   
 }
+
+
+/* Triggered by the infrared sensor.  */
+/* ISR (INT0_vect) */
+/* { */
+/*   ir_int_counter++; */
+/*   GIFR   |= 0x40; */
+/* } */
 
 
 /* External interrupt 1 service routine.  This is only used with the
@@ -1699,7 +1710,7 @@ get_controlpoint (void)
 void
 switch_boiler_relay (int on)
 {
-  if (!on)  /* Inverse logic.  */
+  if (on)
     RELAY_BOILER |= _BV(RELAY_BOILER_BIT);
   else
     RELAY_BOILER &= ~_BV(RELAY_BOILER_BIT);
@@ -1708,7 +1719,7 @@ switch_boiler_relay (int on)
 void
 switch_pump_relay (int on)
 {
-  if (!on)  /* Inverse logic.  */
+  if (on)
     RELAY_PUMP |= _BV(RELAY_PUMP_BIT);
   else
     RELAY_PUMP &= ~_BV(RELAY_PUMP_BIT);
@@ -1963,9 +1974,9 @@ main (void)
      PIND.5 = 
      PIND.4 = 
      PIND.3 = 
-     PIND.2 = 
-     PIND.1 = 
-     PIND.0 = 
+     PIND.2 = IR (SFH506, pin3) 
+     PIND.1 = TXD
+     PIND.0 = RXD
   */
   PORTD = 0x00;
   DDRD  = 0x00;
@@ -2010,16 +2021,14 @@ main (void)
   TCNT2 = 0x00;
   OCR2  = 124;     /*  1ms  */
 
-  /* Init external interrupts:
-   * INT0: off.
-   * INT1: on, falling edge.
-   * INT2: off.
-   */
+  /* Init external interrupts.  */
+  /* GICR  |= 0x40;  /\* Enable Int0.  *\/ */
+  /* MCUCR |= 0x02;  /\* Trigger on falling edge.  *\/ */
+  /* GIFR  |= 0x40;  /\* Clear Int0 flag.  *\/ */
 #ifdef USE_TURN_PUSH
-  GICR  |= 0x80;
-  MCUCR  = 0x08;
-  MCUCSR = 0x00;
-  GIFR   = 0x80;
+  GICR  |= 0x80;  /* Enable Int1.  */
+  MCUCR |= 0x08;  /* Trigger on falling edge.  */
+  GIFR  |= 0x80;  /* Clear Int1 flag.  */
 #endif
 
   /* Init timer/counter interrupts.  */
