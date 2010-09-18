@@ -27,6 +27,9 @@
                   a convenience to non-German speaking hackers.  The
                   LCD code has been written from scratch.
 
+   2010-09-05 wk  Change meaning of the day relay - now used to lit the
+                  display.
+
 */
 
 
@@ -294,9 +297,11 @@ enum {
 /* The current operation mode.  */
 unsigned char operation_mode;
 
+/* The display lit counter (seconds). */
+unsigned char lit_timer;
 
-unsigned int burner_time;
-unsigned int total_time;
+volatile unsigned int burner_time;
+volatile unsigned int total_time;
 
 /* The names of the weekdays.  */
 static const PROGMEM char weekday_names[7][3] = 
@@ -319,7 +324,9 @@ volatile struct
 
 volatile struct
 {
-  unsigned char show_target_temp:1;
+  unsigned char show_left_temp:2;
+  unsigned char show_right_temp:1;
+  unsigned char reset_status_menu:1;
 } actionflags2;
 
 
@@ -349,6 +356,7 @@ unsigned char current_submenu;
 
 
 /* The measured temperatures and an average value.  */
+signed int  real_temperature[2];
 signed int  outside_temperature;
 signed int  boiler_temperature;
 signed long avg_temperature;        
@@ -361,12 +369,14 @@ signed long avg_temperature;
 #define RELAY_BOILER_BIT (2)
 #define RELAY_PUMP       (PORTB)
 #define RELAY_PUMP_BIT   (3)
-#define RELAY_DAY        (PORTB)
-#define RELAY_DAY_BIT    (4)
+#define RELAY_LIT        (PORTB)
+#define RELAY_LIT_BIT    (4)
 
 
-/* The hysteresis of the boiler temperature measured in 0.1 degress.  */
-#define BOILER_HYSTERESIS 15
+/* The hysteresis of the boiler temperature measured in 0.1 degress.
+   For example: 25 means that a target boiler temperature of 50 degree
+   Celsius may oscillate between 47.5 and 52.5. */
+#define BOILER_HYSTERESIS 25
 
 /* The desired temperatur of the boiler.  */
 signed int boiler_temperature_target = 0; 
@@ -811,8 +821,12 @@ read_t_sensors (unsigned char first_time)
 
   /* First the outside temerature.  */
   value = read_adc (1); /* Read ADC1 using AREF. */
+  real_temperature[0] = value;
   if (first_time)
     outside_temperature = value;
+
+  
+  real_temperature[1] = 0;  /* Fixme: Take from third sensor.  */
 
   /* Slowly adjust our idea of the outside temperature to the
      readout. */
@@ -863,11 +877,18 @@ ISR (TIMER2_COMP_vect)
   if (++tim == 2000)
     { 
       /* Two seconds passed.  */
-      if (bit_is_clear (RELAY_BOILER, RELAY_BOILER_BIT))
+      if (bit_is_set (RELAY_BOILER, RELAY_BOILER_BIT))
         burner_time++;
       total_time++;
       tim = 0;
-      actionflags2.show_target_temp = !actionflags2.show_target_temp;
+      if (actionflags2.show_left_temp < 2)
+        actionflags2.show_left_temp++;
+      else
+        actionflags2.show_left_temp = 0;
+      actionflags2.show_right_temp = !actionflags2.show_right_temp;
+
+      if (lit_timer > 1)
+        lit_timer -= 2;
    }
 
   /* Run the main loop every 35ms.  */
@@ -982,6 +1003,9 @@ poll_keyboard (void)
     DEBOUNCE (key5, VK_MODE);
   else
     key5 = 0;
+
+  if (current_key != VK_NONE)
+    lit_timer = 20; /* Set to n seconds. */
 }                   
 #undef DEBOUNCE
 #undef DEBOUNCE_COUNT
@@ -1024,6 +1048,12 @@ status_menu (void)
 {  
   static unsigned char index, blink;
 
+  if (actionflags2.reset_status_menu)
+    {
+      actionflags2.reset_status_menu = 0;
+      index = blink = 0;
+    }
+
   if (actionflags.menu)
     { 
       lcd_gotoxy (2, 0);
@@ -1042,20 +1072,34 @@ status_menu (void)
      
       lcd_int ((current_time % 1440) % 60, 2 ,LEADING_ZERO);
       lcd_gotoxy (0, 1); 
-      if (actionflags2.show_target_temp)
+      switch (actionflags2.show_left_temp)
         { 
-          lcd_puts_P ("Ts="); 
-          lcd_int (boiler_temperature_target/10, -2, 0); 
-        }                                                         
-      else
-        {
-          lcd_puts_P ("Ta=");
+        case 0:
+          lcd_puts_P ("Ta="); 
+          lcd_int (real_temperature[0]/10, -2, 0); 
+          break;
+        case 1:
+          lcd_puts_P ("Tb="); 
+          lcd_int (real_temperature[1]/10, -2, 0); 
+          break;
+        default:
+          lcd_puts_P ("T*=");
           lcd_int (outside_temperature/10, -2, 0); 
+          break;
         }                                                         
       lcd_putc ('\xdf'); lcd_putc(' ');
 
-      lcd_puts_P("Tk=");
-      lcd_int (boiler_temperature/10, -2, 0);
+      switch (actionflags2.show_right_temp)
+        { 
+        case 0:
+          lcd_puts_P ("Ts="); 
+          lcd_int (boiler_temperature_target/10, -2, 0); 
+          break;
+        default:
+          lcd_puts_P("Tk=");
+          lcd_int (boiler_temperature/10, -2, 0);
+          break;
+        }
       lcd_putc ('\xdf'); lcd_putc('C');
  
       lcd_gotoxy(12,0);
@@ -1424,17 +1468,17 @@ temperature_menu (void)
   
   if (actionflags.menu)
     {
-      lcd_gotoxy (0, 0); lcd_puts_P ("  \x4   \xdf bei    \xdf");
-      lcd_gotoxy (0, 1); lcd_puts_P ("  \x5   \xdf bei    \xdf");
+      lcd_gotoxy (0, 0); lcd_puts_P ("  \x3   \xdf bei    \xdf");
+      lcd_gotoxy (0, 1); lcd_puts_P ("  \x4   \xdf bei    \xdf");
       actionflags.menu = 0;
     }                  
   
-  lcd_gotoxy (0,0); lcd_putc (kennlinie+1);
+  lcd_gotoxy (0,0); lcd_putc (kennlinie);
   
   lcd_gotoxy (4,0);  lcd_int (get_t_boiler_max (kennlinie) / 10, 2, 0); 
   lcd_gotoxy (4,1);  lcd_int (get_t_boiler_min (kennlinie) / 10, 2, 0); 
-  lcd_gotoxy (12,0); lcd_int (get_t_curve_high (kennlinie) / 10, -2, 0); 
-  lcd_gotoxy (12,1); lcd_int (get_t_curve_low  (kennlinie) / 10, -2, 0); 
+  lcd_gotoxy (12,0); lcd_int (get_t_curve_low (kennlinie) / 10, -2, 0); 
+  lcd_gotoxy (12,1); lcd_int (get_t_curve_high  (kennlinie) / 10, -2, 0); 
  
   switch (index)
     {
@@ -1442,11 +1486,11 @@ temperature_menu (void)
       lcd_gotoxy(11,1); lcd_putc(' ');
       if (current_key == VK_UP)
         {
-          if (kennlinie < 2)
+          if (kennlinie < N_CHARACTERISTICS-1)
             kennlinie++; 
           else 
             {
-              kennlinie=0;
+              kennlinie = 0;
               current_submenu = 255; 
             }
         }
@@ -1456,7 +1500,7 @@ temperature_menu (void)
           if (kennlinie > 0) 
             kennlinie--;
           else
-            kennlinie = 2;
+            kennlinie = N_CHARACTERISTICS-1;
         }
       break;
       
@@ -1472,9 +1516,9 @@ temperature_menu (void)
       lcd_gotoxy (7,0); lcd_putc(' ');  
       lcd_gotoxy (11,0); lcd_putc('\x7e');
       if (current_key == VK_UP)
-        inc_t_curve_high (kennlinie, 10);
+        inc_t_curve_low (kennlinie, 10);
       if (current_key == VK_DOWN)
-        inc_t_curve_high (kennlinie, -10);
+        inc_t_curve_low (kennlinie, -10);
       break;
       
     case 3:
@@ -1490,15 +1534,15 @@ temperature_menu (void)
       lcd_gotoxy (7,1); lcd_putc (' ');  
       lcd_gotoxy (11,1); lcd_putc ('\x7e');
       if (current_key == VK_UP)
-        inc_t_curve_low (kennlinie, 10);
+        inc_t_curve_high (kennlinie, 10);
       if (current_key == VK_DOWN)
-        inc_t_curve_low (kennlinie, -10);
+        inc_t_curve_high (kennlinie, -10);
       break;
     }
   
   if (current_key == VK_ENTER)
     {
-      if (index <4)
+      if (index < 4)
         index++; 
       else 
         index = 0;
@@ -1686,11 +1730,11 @@ get_controlpoint (void)
 {  
   signed long target, dK, dT;
 
-  if (outside_temperature < get_t_curve_high (operation_mode))
+  if (outside_temperature < get_t_curve_low (operation_mode))
     {
       target = get_t_boiler_max (operation_mode);
     }
-  else if (outside_temperature > get_t_curve_low (operation_mode))
+  else if (outside_temperature > get_t_curve_high (operation_mode))
     {
       target = get_t_boiler_min (operation_mode);
     }
@@ -1698,11 +1742,11 @@ get_controlpoint (void)
     {
       dK = (get_t_boiler_max (operation_mode)
             - get_t_boiler_min (operation_mode));
-      dT = (get_t_curve_low (operation_mode)
-            - get_t_curve_high (operation_mode));
+      dT = (get_t_curve_high (operation_mode)
+            - get_t_curve_low (operation_mode));
       target = (get_t_boiler_max (operation_mode)
                 - ((outside_temperature
-                    - get_t_curve_high (operation_mode)) * dK) / dT);
+                    - get_t_curve_low (operation_mode)) * dK) / dT);
     }
   boiler_temperature_target = target; 
 }
@@ -1727,12 +1771,12 @@ switch_pump_relay (int on)
 }
 
 void
-switch_day_relay (int on)
+switch_lit_relay (int on)
 {
   if (on) 
-    RELAY_DAY |= _BV(RELAY_DAY_BIT);
+    RELAY_LIT |= _BV(RELAY_LIT_BIT);
   else
-    RELAY_DAY &= ~_BV(RELAY_DAY_BIT);
+    RELAY_LIT &= ~_BV(RELAY_LIT_BIT);
 }
 
 void
@@ -1759,10 +1803,9 @@ relay_control (void)
 {
   static unsigned char old_operation_mode, delay_counter;
 
-  if (boiler_temperature
-      > boiler_temperature_target + BOILER_HYSTERESIS)
+  if (boiler_temperature > boiler_temperature_target + BOILER_HYSTERESIS)
     switch_boiler_relay (0);
-  else if (boiler_temperature < boiler_temperature_target)
+  else if (boiler_temperature < boiler_temperature_target - BOILER_HYSTERESIS)
     switch_boiler_relay (1);
   
   if (old_operation_mode == operation_mode)
@@ -1802,8 +1845,11 @@ run_menu (void)
     }
   else if (current_key == VK_MENU) 
     {
-      current_submenu = 255;
+      /* Instead of showing the menu we now directly switch to the
+         status menu.  */
+      current_submenu = 0;
       actionflags.menu= 1;
+      actionflags2.reset_status_menu= 1;
     }
   
   switch (current_submenu)
@@ -1844,7 +1890,7 @@ init_eeprom (void)
           break;
         case 1:
           aword = MK_TIME (9,00);
-          abyte = ABSENT_MODE;
+          abyte = DEACTIVATED_MODE;
           break;
         case 2:
           aword = MK_TIME (17,00);
@@ -1872,21 +1918,21 @@ init_eeprom (void)
     }
       
   eeprom_update_word (&ee_t_boiler_max[DAY_MODE], 750);
-  eeprom_update_word (&ee_t_boiler_min[DAY_MODE], 300);
-  eeprom_update_word (&ee_t_curve_high[DAY_MODE], -100);
-  eeprom_update_word (&ee_t_curve_low[DAY_MODE], 200);
-  eeprom_update_word (&ee_t_pump_on[DAY_MODE], 390);
+  eeprom_update_word (&ee_t_boiler_min[DAY_MODE], 350);
+  eeprom_update_word (&ee_t_curve_low[DAY_MODE], -100);
+  eeprom_update_word (&ee_t_curve_high[DAY_MODE], 200);
+  eeprom_update_word (&ee_t_pump_on[DAY_MODE], 400);
 
-  eeprom_update_word (&ee_t_boiler_max[NIGHT_MODE], 500);
-  eeprom_update_word (&ee_t_boiler_min[NIGHT_MODE], 300);
-  eeprom_update_word (&ee_t_curve_high[NIGHT_MODE], -150);
-  eeprom_update_word (&ee_t_curve_low[NIGHT_MODE], 200);
+  eeprom_update_word (&ee_t_boiler_max[NIGHT_MODE], 600);
+  eeprom_update_word (&ee_t_boiler_min[NIGHT_MODE], 350);
+  eeprom_update_word (&ee_t_curve_low[NIGHT_MODE], -150);
+  eeprom_update_word (&ee_t_curve_high[NIGHT_MODE], 200);
   eeprom_update_word (&ee_t_pump_on[NIGHT_MODE], 450);
 
   eeprom_update_word (&ee_t_boiler_max[ABSENT_MODE], 600);
-  eeprom_update_word (&ee_t_boiler_min[ABSENT_MODE], 300);
-  eeprom_update_word (&ee_t_curve_high[ABSENT_MODE], -150);
-  eeprom_update_word (&ee_t_curve_low[ABSENT_MODE], 200);
+  eeprom_update_word (&ee_t_boiler_min[ABSENT_MODE], 350);
+  eeprom_update_word (&ee_t_curve_low[ABSENT_MODE], -150);
+  eeprom_update_word (&ee_t_curve_high[ABSENT_MODE], 200);
   eeprom_update_word (&ee_t_pump_on[ABSENT_MODE], 440);          
     
   put_shift_offset (0);   
@@ -1947,7 +1993,7 @@ main (void)
      PINB.7  = SCK
      PINB.6  = MISI
      PINB.5  = MOSI
-     PORTB.4 = RELAY_DAY
+     PORTB.4 = RELAY_LIT
      PORTB.3 = RELAY_PUMP
      PORTB.2 = RELAY_BOILER
      PORTB.1 = LED_ABSENT
@@ -2055,7 +2101,7 @@ main (void)
    * Enable, Single conversion.
    * Prescaler = 64 (at 8Mhz => 125kHz).
    */
-  ADCSRA = 0x86;
+  ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1);
 
   /* Prepare the LCD.  */
   uart_puts_P ("init lcd ...\n");
@@ -2109,13 +2155,12 @@ main (void)
        operation_mode = tmp_mode;
            
      run_menu ();
-
-     get_temperature (0);
+     read_t_sensors (0); 
      get_controlpoint ();
      relay_control ();
      poll_keyboard ();              
      
-     switch_day_relay (operation_mode == DAY_MODE);
+     switch_lit_relay (lit_timer);
      switch_night_led (operation_mode == NIGHT_MODE);
      switch_absent_led (operation_mode == ABSENT_MODE);
      
@@ -2180,5 +2225,5 @@ main (void)
 Local Variables:
 compile-command: "avr-gcc -Wall -Wno-pointer-sign -g -mmcu=atmega32 -Os -o heating-control.elf heating-control.c -lc ; avr-objcopy -O ihex -j .text -j .data  heating-control.elf heating-control.hex"
 End:
- avrdude -c usbasp -pm32 -U flash:write:heating-control.hex
+ avrdude -c usbasp -pm32 -U flash:w:heating-control.hex
 */
