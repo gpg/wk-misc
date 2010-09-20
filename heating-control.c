@@ -4,6 +4,9 @@
    
    FIXME:  Figure out copyright and license stuff.
 
+   All new code (Werner Koch) shall be under the GPLv3+.
+
+
    Original notice:
    *********************************************
    Project : Heizung ATmega32
@@ -30,6 +33,7 @@
    2010-09-05 wk  Change meaning of the day relay - now used to lit the
                   display.
 
+   2010-09-20 wk  Change UART output to an easer to parse format.
 */
 
 
@@ -314,11 +318,10 @@ volatile struct
   unsigned char menu:1;
   unsigned char minute:1;
   unsigned char day:1;
-  unsigned char send_data:1;
-  unsigned char send_lcd:1;
   unsigned char refresh_lcd:1;
   unsigned char output:1;
   unsigned char run_main:1;
+  unsigned char monitor_mode:1;
 } actionflags;
 
 
@@ -327,7 +330,16 @@ volatile struct
   unsigned char show_left_temp:2;
   unsigned char show_right_temp:1;
   unsigned char reset_status_menu:1;
+  unsigned char send_help:1;
+  unsigned char send_hist:1;
+  unsigned char send_data:1;
+  unsigned char send_conf:1;
 } actionflags2;
+
+volatile struct
+{
+  unsigned char status_change:1;
+} actionflags3;
 
 
 /* The hardware keys.  */
@@ -744,9 +756,10 @@ void
 format_int (char output, signed int value, signed char width,
             signed char precision)
 {
-  unsigned int table[] = {0,1,10,100,255};
+  unsigned int table[] = {0,1,10,100,1000,10000,32767};
   signed char i;
   unsigned char pos, zero;  
+  char nowidth = 0;
    
   actionflags.output = output;
   
@@ -759,10 +772,20 @@ format_int (char output, signed int value, signed char width,
           do_putchar ('-');
         }
       else
-        do_putchar('+');                    
+        do_putchar ('+');                    
+    }
+  else if (!width)
+    {
+      width = 5;
+      nowidth = 1;
+      if (value < 0)
+        {
+          value = -value;
+          do_putchar ('-');
+        }
     }
 
-  if (precision > width || width > 3)
+  if (precision > width || width > 5)
     {
       for (i=0; i < width; i++)
         do_putchar ('?');
@@ -788,7 +811,10 @@ format_int (char output, signed int value, signed char width,
       pos = '0' + (value / table[i]);
       
       if ((pos == '0') && !zero && i != 1)
-        do_putchar ((i == precision+1)? '0':' ');
+        {
+          if (!nowidth)
+            do_putchar ((i == precision+1)? '0':' ');
+        }
       else
         {
           zero = 1;                        
@@ -857,7 +883,21 @@ ISR (TIMER2_COMP_vect)
   static unsigned int clock; /* Milliseconds of the current minute.  */
   static unsigned int tim;
   
-  if (++clock == 60000) 
+  clock++;
+
+  if (!(clock % 2000))
+    {
+      if (actionflags2.show_left_temp < 2)
+        actionflags2.show_left_temp++;
+      else
+        actionflags2.show_left_temp = 0;
+      actionflags2.show_right_temp = !actionflags2.show_right_temp;
+
+      if (actionflags.monitor_mode && !(clock % 10000))
+        actionflags2.send_data = 1;
+    }
+
+  if (clock == 60000) 
    {
      /* One minute has passed.  Bump the current time.  */
      current_time++; 
@@ -881,11 +921,6 @@ ISR (TIMER2_COMP_vect)
         burner_time++;
       total_time++;
       tim = 0;
-      if (actionflags2.show_left_temp < 2)
-        actionflags2.show_left_temp++;
-      else
-        actionflags2.show_left_temp = 0;
-      actionflags2.show_right_temp = !actionflags2.show_right_temp;
 
       if (lit_timer > 1)
         lit_timer -= 2;
@@ -900,6 +935,7 @@ ISR (TIMER2_COMP_vect)
       if (!(clock % 350))
         actionflags.refresh_lcd = 1;
     }      
+
 }
 
 
@@ -917,12 +953,14 @@ ISR (USART_RXC_vect)
   
   switch (c)
     {
-    case 'T':                        actionflags.send_data = 1; break;
-    case '2': current_key = VK_UP;   actionflags.send_lcd = 1; break;
-    case '1': current_key = VK_DOWN; actionflags.send_lcd = 1; break;
-    case '3': current_key = VK_MODE; break;
-    case ' ':                        actionflags.send_lcd = 1; break;
-    case '\r':current_key = VK_ENTER; actionflags.send_lcd = 1; break; 
+    case '?':  actionflags2.send_help = 1; break;
+    case 'h':  actionflags2.send_hist = 1; break;
+    case 'c':  actionflags2.send_conf = 1; break;
+    case 'd':  
+    case ' ':
+    case '\r': actionflags2.send_data = 1; break; 
+    case 'm' : actionflags.monitor_mode = 1; break;  
+    case '.' : actionflags.monitor_mode = 0; break;  
     } 
   
 }
@@ -1753,24 +1791,6 @@ get_controlpoint (void)
 
 
 void
-switch_boiler_relay (int on)
-{
-  if (on)
-    RELAY_BOILER |= _BV(RELAY_BOILER_BIT);
-  else
-    RELAY_BOILER &= ~_BV(RELAY_BOILER_BIT);
-}
-
-void
-switch_pump_relay (int on)
-{
-  if (on)
-    RELAY_PUMP |= _BV(RELAY_PUMP_BIT);
-  else
-    RELAY_PUMP &= ~_BV(RELAY_PUMP_BIT);
-}
-
-void
 switch_lit_relay (int on)
 {
   if (on) 
@@ -1804,9 +1824,23 @@ relay_control (void)
   static unsigned char old_operation_mode, delay_counter;
 
   if (boiler_temperature > boiler_temperature_target + BOILER_HYSTERESIS)
-    switch_boiler_relay (0);
+    {
+      if (bit_is_set (RELAY_BOILER, RELAY_BOILER_BIT))
+        {
+          RELAY_BOILER &= ~_BV(RELAY_BOILER_BIT);
+          if (actionflags.monitor_mode)
+            actionflags3.status_change = 1;
+        }
+    }
   else if (boiler_temperature < boiler_temperature_target - BOILER_HYSTERESIS)
-    switch_boiler_relay (1);
+    {
+      if (bit_is_clear (RELAY_BOILER, RELAY_BOILER_BIT))
+        {
+          RELAY_BOILER |= _BV(RELAY_BOILER_BIT);
+          if (actionflags.monitor_mode)
+            actionflags3.status_change = 1;
+        }
+    }
   
   if (old_operation_mode == operation_mode)
     {
@@ -1814,19 +1848,33 @@ relay_control (void)
           && (boiler_temperature_target < get_t_pump_on (operation_mode)))
         {
           /* Boiler temperature dropped below the limit. */
-          switch_pump_relay (0);
+          if (bit_is_set (RELAY_PUMP, RELAY_PUMP_BIT))
+            {
+              RELAY_PUMP &= ~_BV(RELAY_PUMP_BIT);
+              if (actionflags.monitor_mode)
+                actionflags3.status_change = 1;
+            }
         }
       else if ((boiler_temperature_target
                 > get_t_pump_on (operation_mode) + 10)
                && (boiler_temperature > get_t_pump_on (operation_mode)))
         {
-          switch_pump_relay (1);
+          if (bit_is_clear (RELAY_PUMP, RELAY_PUMP_BIT))
+            {
+              RELAY_PUMP |= _BV(RELAY_PUMP_BIT);
+              if (actionflags.monitor_mode)
+                actionflags3.status_change = 1;
+            }
         }
     }   
   else /* Operation mode changed - take action after a delay.  */
     {
       if (--delay_counter == 0)
-        old_operation_mode = operation_mode;
+        {
+          old_operation_mode = operation_mode;
+          if (actionflags.monitor_mode)
+            actionflags3.status_change = 1;
+        }
     }
 }
 
@@ -1966,6 +2014,14 @@ store_consumption (void)
 }
 
 
+static void
+do_colon_linefeed (void)
+{
+  do_putchar (':');
+  do_putchar ('\r');
+  do_putchar ('\n');
+}
+
 
 /*
     Entry point
@@ -2104,10 +2160,7 @@ main (void)
   ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1);
 
   /* Prepare the LCD.  */
-  uart_puts_P ("init lcd ...\n");
   lcd_init ();
-  uart_puts_P ("init lcd done\n");
-
 
   /* Reset the eeprom if the enter key is pressed while booting.  */
   if (KEY_4)
@@ -2121,14 +2174,14 @@ main (void)
 
   delay_ms (1500);
 
-  uart_puts_P ("init eeprom...\n");
   init_eeprom ();
-  uart_puts_P ("init eeprom done\r\n");
 
   read_t_sensors (1); 
 
   /* Enable interrupts.  */
   sei ();
+
+  uart_puts_P ("?: system ready\r\n");
 
   /* Main loop.  */
   for (;;)
@@ -2169,53 +2222,114 @@ main (void)
          store_consumption ();
          actionflags.day = 0;
        }
-            
-     if (actionflags.send_lcd)
-       {                          
-         uint8_t i;
-         
-         actionflags.send_lcd = 0;
 
-         run_menu ();
-
-         lcd_gotoxy (0, 0);
-         for (i = 0; i < 16; i++)
-           uart_putc (lcd_getc ());
-         uart_puts_P ("\n");
-         lcd_gotoxy (0, 1);
-         for (i = 0; i < 16; i++)
-           uart_putc (lcd_getc ());
-         uart_puts_P ("\n");
-       }
-            
-     if (actionflags.send_data)
-       {                          
-         unsigned char tmp_buffer;
-         uint8_t consumption;
-         
-         actionflags.send_data = 0;
-
-         tmp_buffer = get_history_index () - 1;
-         
+     if (actionflags2.send_help)
+       {
+         actionflags2.send_help = 0;
          actionflags.output = SERIAL;
-         while (tmp_buffer != get_history_index ())
-           {
-             if (tmp_buffer >= MAX_LOGGING) 
-               tmp_buffer = MAX_LOGGING-1;
-             if (tmp_buffer == get_history_index ())
-               break;
+         uart_puts_P ("?: Help\r\n"
+                      "?:  ? - print help\r\n"
+                      "?:  d - send current data\r\n"
+                      "?:  h - send history\r\n"
+                      "?:  c - send configuration\r\n"
+                      "?:  m - enable monitor mode\r\n"
+                      "?:  . - disable monitor mode\r\n"
+                      "?:\r\n");
+       }
+
+     if (actionflags2.send_hist || actionflags2.send_data
+         || actionflags2.send_conf || actionflags3.status_change)
+       {
+         unsigned int tmptime = current_time;
+
+         actionflags.output = SERIAL;
+
+         actionflags3.status_change = 0;
+
+         do_putchar ('s');
+         do_putchar (':');
+         uart_int (tmptime / 1440, 0, 0);
+         do_putchar (':');
+         uart_int ((tmptime % 1440) / 60, 2, LEADING_ZERO);
+         do_putchar (':');
+         uart_int ((tmptime % 1440) % 60, 2, LEADING_ZERO);
+         do_putchar (':');
+         uart_int (operation_mode, 0, 0);
+         do_putchar (':');
+         do_putchar (get_shift_offset ()?'1':'0');
+         do_putchar (':');
+         do_putchar ((RELAY_BOILER & _BV (RELAY_BOILER_BIT))?'1':'0');
+         do_putchar (':');
+         do_putchar ((RELAY_PUMP & _BV (RELAY_PUMP_BIT))?'1':'0');
+         do_putchar (':');
+         do_putchar (':');
+         do_putchar (':');
+         do_putchar (':');
+         do_putchar (':');
+         uart_int (total_time, 0, 0); 
+         do_putchar (':');
+         uart_int (burner_time, 0, 0); 
+         do_colon_linefeed ();
+
+         if (actionflags2.send_data)
+           {                          
+             actionflags2.send_data = 0;
              
-             consumption = get_consumption (tmp_buffer);
-             if (consumption <= 100) 
+             do_putchar ('t');
+             do_putchar (':');
+             uart_int (boiler_temperature_target, 0, 0); 
+             do_putchar (':');
+             uart_int (boiler_temperature, 0, 0);
+             do_putchar (':');
+             uart_int (outside_temperature, 0, 0); 
+             do_putchar (':');
+             do_putchar (':');
+             do_putchar (':');
+             uart_int (real_temperature[0], 0, 0); 
+             do_putchar (':');
+             uart_int (real_temperature[1], 0, 0); 
+             do_colon_linefeed ();
+
+           }
+
+         if (actionflags2.send_hist)
+           {                          
+             uint8_t tmpidx;
+             uint8_t consumption;
+             
+             actionflags2.send_hist = 0;
+             
+             do_putchar ('h');
+             do_colon_linefeed ();
+
+             tmpidx = get_history_index () - 1;
+             while (tmpidx != get_history_index ())
                {
-                 uart_int (consumption, 3, 0);
-                 do_putchar(',');
-                 uart_int (get_temperature (tmp_buffer), -2 , 0);
-                 do_putchar('\r');
-                 do_putchar('\n');
-               }
-             tmp_buffer--; 
-           } 
+                 if (tmpidx >= MAX_LOGGING) 
+                   tmpidx = MAX_LOGGING-1;
+                 if (tmpidx == get_history_index ())
+                   break;
+                 
+                 consumption = get_consumption (tmpidx);
+                 if (consumption <= 100) 
+                   {
+                     do_putchar ('h');
+                     do_putchar (':');
+                     uart_int (tmpidx, 0, 0);
+                     do_putchar (':');
+                     uart_int (consumption, 0, 0);
+                     do_putchar (':');
+                     uart_int (get_temperature (tmpidx), 0, 0);
+                     do_colon_linefeed ();
+                   }
+                 tmpidx--; 
+               } 
+           }
+
+         if (actionflags2.send_conf)
+           {
+             actionflags2.send_conf = 0;
+           }
        }
    }
 }
