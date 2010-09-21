@@ -33,8 +33,10 @@
    2010-09-05 wk  Change meaning of the day relay - now used to lit the
                   display.
 
-   2010-09-20 wk  Change UART output to an easer to parse format.
-*/
+   2010-09-20 wk  Change UART output to an easer to parse format.  Use
+                  AT like commands to request data.
+
+  */
 
 
 /*#define USE_TURN_PUSH*/
@@ -44,6 +46,7 @@
 #define F_CPU 8000000UL
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <util/delay.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
@@ -330,7 +333,6 @@ volatile struct
   unsigned char show_left_temp:2;
   unsigned char show_right_temp:1;
   unsigned char reset_status_menu:1;
-  unsigned char send_help:1;
   unsigned char send_hist:1;
   unsigned char send_data:1;
   unsigned char send_conf:1;
@@ -363,8 +365,14 @@ enum
 /* The current value of our virtual key.  */
 unsigned char current_key;
 
-/* The indentifier of the current submenu.  */
+/* The identifier of the current submenu.  */
 unsigned char current_submenu;
+
+/* The current atcommand if any and a flag indicating that an AT
+   command is currently processed.  During the time of procewssing an
+   AT command all input is ignored.  */
+volatile char atcommand[16];
+volatile char run_atcommand;
 
 
 /* The measured temperatures and an average value.  */
@@ -391,7 +399,7 @@ signed long avg_temperature;
 #define BOILER_HYSTERESIS 25
 
 /* The desired temperatur of the boiler.  */
-signed int boiler_temperature_target = 0; 
+signed int boiler_temperature_target; 
 
 
 #define MK_TIME(h,m)  ((h)*60+(m))
@@ -446,7 +454,6 @@ _lcd_read (uint8_t read_ctrl)
 {
   uint8_t value = 0;
 
-  PORTB |= 4;
   if (read_ctrl)
     _lcd_rs_low (); 
   else
@@ -489,7 +496,6 @@ _lcd_read (uint8_t read_ctrl)
   LCD_DDR  |= LCD_DATA_MASK;
 
   _lcd_rw_low ();
-  PORTB &= ~4;
   return value;
 }
 
@@ -949,20 +955,54 @@ ISR (USART_TXC_vect)
 /* UART receive interrupt service routine.  */
 ISR (USART_RXC_vect)
 {
-  unsigned char c = UDR;
-  
-  switch (c)
+  static uint8_t state;
+  static uint8_t bufidx;
+  uint8_t c = UDR;
+
+  switch (state)
     {
-    case '?':  actionflags2.send_help = 1; break;
-    case 'h':  actionflags2.send_hist = 1; break;
-    case 'c':  actionflags2.send_conf = 1; break;
-    case 'd':  
-    case ' ':
-    case '\r': actionflags2.send_data = 1; break; 
-    case 'm' : actionflags.monitor_mode = 1; break;  
-    case '.' : actionflags.monitor_mode = 0; break;  
-    } 
-  
+    case 0:
+      if (c == '\r')
+        state = 1;
+      break;
+    case 4:
+      if (run_atcommand)
+        break;
+      state = 1;
+      /*FALLTHRU*/
+    case 1:
+      if (c == 'A' || c == 'a')
+        state = 2;
+      else if (c == '\n')
+        ;
+      else
+        state = 0;
+      break;
+    case 2: 
+      if (c == 'T' || c == 't')
+        {
+          state = 3;
+          bufidx = 0;
+        }
+      else if (c == '/') /* Repeat last command.  */
+        {
+          run_atcommand = 1;
+          state = 4;
+        }
+      else
+        state = 0;
+      break;
+    case 3:
+      if (c == '\r')
+        {
+          atcommand[bufidx] = 0;
+          run_atcommand = 1;
+          state = 4;
+        }
+      else if (bufidx < sizeof atcommand - 1)
+        atcommand[bufidx++] = c;
+      break;
+    }
 }
 
 
@@ -1965,16 +2005,16 @@ init_eeprom (void)
       put_timer_mode (i, abyte);
     }
       
-  eeprom_update_word (&ee_t_boiler_max[DAY_MODE], 750);
-  eeprom_update_word (&ee_t_boiler_min[DAY_MODE], 350);
   eeprom_update_word (&ee_t_curve_low[DAY_MODE], -100);
-  eeprom_update_word (&ee_t_curve_high[DAY_MODE], 200);
+  eeprom_update_word (&ee_t_boiler_max[DAY_MODE], 750);
+  eeprom_update_word (&ee_t_curve_high[DAY_MODE], 180);
+  eeprom_update_word (&ee_t_boiler_min[DAY_MODE], 380);
   eeprom_update_word (&ee_t_pump_on[DAY_MODE], 400);
 
-  eeprom_update_word (&ee_t_boiler_max[NIGHT_MODE], 600);
-  eeprom_update_word (&ee_t_boiler_min[NIGHT_MODE], 350);
   eeprom_update_word (&ee_t_curve_low[NIGHT_MODE], -150);
-  eeprom_update_word (&ee_t_curve_high[NIGHT_MODE], 200);
+  eeprom_update_word (&ee_t_boiler_max[NIGHT_MODE], 600);
+  eeprom_update_word (&ee_t_curve_high[NIGHT_MODE], 180);
+  eeprom_update_word (&ee_t_boiler_min[NIGHT_MODE], 380);
   eeprom_update_word (&ee_t_pump_on[NIGHT_MODE], 450);
 
   eeprom_update_word (&ee_t_boiler_max[ABSENT_MODE], 600);
@@ -2020,6 +2060,73 @@ do_colon_linefeed (void)
   do_putchar (':');
   do_putchar ('\r');
   do_putchar ('\n');
+}
+
+
+/* Run an AT command found in ATCOMMAND.  Returns 0 on success or true
+   on error. */
+static char
+do_atcommand (void)
+{
+  static char cmd[16];
+  static char echo_mode;
+  uint8_t i, c;
+
+  for (i=0; (c=atcommand[i]) && i < sizeof cmd -1; i++)
+    cmd[i] = c;
+  cmd[i] = c;
+
+  if (echo_mode)
+    {
+      uart_puts_P ("AT");
+      uart_puts (cmd);
+      uart_puts_P ("\r\n");
+    }
+
+  if (!*cmd)
+    ;
+  else if (*cmd == 'i' || *cmd == 'I')
+    uart_puts_P ("Heating Control (AT&H for help)\r\n");
+  else if (*cmd == 'e' || *cmd == 'E')
+    echo_mode = (cmd[1] == '1');
+  else if (*cmd == '&')
+    {
+      if (cmd[1] == 'h' || cmd[1] == 'H')
+        {
+          uart_puts_P (" ATI  - info\r\n"
+                       " ATEn - switch local echo on/off\r\n"
+                       " AT&H - this help page\r\n"
+                       " AT&V - status and current temperature\r\n"
+                       " AT+H - list history\r\n"
+                       " AT+C - list configuration\r\n"
+                       " AT+Ln - switch display light on/off\r\n"
+                       " AT+Mn - switch monitor mode on/off\r\n"
+                       " AT+TIME=<min> - set system time to MIN\r\n");
+        }
+      else if (cmd[1] == 'v' || cmd[1] == 'V')
+        actionflags2.send_data = 1;
+      else
+        return 1;
+    }
+  else if (*cmd == '+')
+    {
+      if (cmd[1] == 'h' || cmd[1] == 'H')
+        actionflags2.send_hist = 1;
+      else if (cmd[1] == 'l' || cmd[1] == 'L')
+        lit_timer = cmd[2] == '1'? 20 : 0;
+      else if ((cmd[1] == 'c' || cmd[1] == 'C') && !cmd[2])
+        actionflags2.send_conf = 1;
+      else if (cmd[1] == 'm' || cmd[1] == 'M')
+        actionflags.monitor_mode = (cmd[2] == '1');
+      else if (cmd[1] == 'T' && cmd[2] == 'I' && cmd[3] == 'M'
+               && cmd[4] == 'E' && cmd[5] == '=' && cmd[6])
+        current_time = atoi (cmd+6);
+      else
+        return 1;
+    }
+  else 
+    return 1;
+  return 0; /* Okay.  */
 }
 
 
@@ -2223,18 +2330,14 @@ main (void)
          actionflags.day = 0;
        }
 
-     if (actionflags2.send_help)
+     if (run_atcommand)
        {
-         actionflags2.send_help = 0;
          actionflags.output = SERIAL;
-         uart_puts_P ("?: Help\r\n"
-                      "?:  ? - print help\r\n"
-                      "?:  d - send current data\r\n"
-                      "?:  h - send history\r\n"
-                      "?:  c - send configuration\r\n"
-                      "?:  m - enable monitor mode\r\n"
-                      "?:  . - disable monitor mode\r\n"
-                      "?:\r\n");
+         if (do_atcommand ())
+           uart_puts_P ("ERROR\r\n");
+         else
+           uart_puts_P ("OK\r\n");
+         run_atcommand = 0;
        }
 
      if (actionflags2.send_hist || actionflags2.send_data
@@ -2246,28 +2349,30 @@ main (void)
 
          actionflags3.status_change = 0;
 
-         do_putchar ('s');
-         do_putchar (':');
+         uart_putc ('s');
+         uart_putc (':');
          uart_int (tmptime / 1440, 0, 0);
-         do_putchar (':');
+         uart_putc (':');
          uart_int ((tmptime % 1440) / 60, 2, LEADING_ZERO);
-         do_putchar (':');
+         uart_putc (':');
          uart_int ((tmptime % 1440) % 60, 2, LEADING_ZERO);
-         do_putchar (':');
+         uart_putc (':');
+         uart_int (tmptime, 0, 0);
+         uart_putc (':');
          uart_int (operation_mode, 0, 0);
-         do_putchar (':');
-         do_putchar (get_shift_offset ()?'1':'0');
-         do_putchar (':');
-         do_putchar ((RELAY_BOILER & _BV (RELAY_BOILER_BIT))?'1':'0');
-         do_putchar (':');
-         do_putchar ((RELAY_PUMP & _BV (RELAY_PUMP_BIT))?'1':'0');
-         do_putchar (':');
-         do_putchar (':');
-         do_putchar (':');
-         do_putchar (':');
-         do_putchar (':');
+         uart_putc (':');
+         uart_putc (get_shift_offset ()?'1':'0');
+         uart_putc (':');
+         uart_putc ((RELAY_BOILER & _BV (RELAY_BOILER_BIT))?'1':'0');
+         uart_putc (':');
+         uart_putc ((RELAY_PUMP & _BV (RELAY_PUMP_BIT))?'1':'0');
+         uart_putc (':');
+         uart_putc (':');
+         uart_putc (':');
+         uart_putc (':');
+         uart_putc (':');
          uart_int (total_time, 0, 0); 
-         do_putchar (':');
+         uart_putc (':');
          uart_int (burner_time, 0, 0); 
          do_colon_linefeed ();
 
@@ -2275,18 +2380,18 @@ main (void)
            {                          
              actionflags2.send_data = 0;
              
-             do_putchar ('t');
-             do_putchar (':');
+             uart_putc ('t');
+             uart_putc (':');
              uart_int (boiler_temperature_target, 0, 0); 
-             do_putchar (':');
+             uart_putc (':');
              uart_int (boiler_temperature, 0, 0);
-             do_putchar (':');
+             uart_putc (':');
              uart_int (outside_temperature, 0, 0); 
-             do_putchar (':');
-             do_putchar (':');
-             do_putchar (':');
+             uart_putc (':');
+             uart_putc (':');
+             uart_putc (':');
              uart_int (real_temperature[0], 0, 0); 
-             do_putchar (':');
+             uart_putc (':');
              uart_int (real_temperature[1], 0, 0); 
              do_colon_linefeed ();
 
@@ -2299,7 +2404,7 @@ main (void)
              
              actionflags2.send_hist = 0;
              
-             do_putchar ('h');
+             uart_putc ('h');
              do_colon_linefeed ();
 
              tmpidx = get_history_index () - 1;
@@ -2313,12 +2418,12 @@ main (void)
                  consumption = get_consumption (tmpidx);
                  if (consumption <= 100) 
                    {
-                     do_putchar ('h');
-                     do_putchar (':');
+                     uart_putc ('h');
+                     uart_putc (':');
                      uart_int (tmpidx, 0, 0);
-                     do_putchar (':');
+                     uart_putc (':');
                      uart_int (consumption, 0, 0);
-                     do_putchar (':');
+                     uart_putc (':');
                      uart_int (get_temperature (tmpidx), 0, 0);
                      do_colon_linefeed ();
                    }
