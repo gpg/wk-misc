@@ -299,7 +299,7 @@ enum {
 
 /* Flag indicating a workday.  */
 #define WORKDAY     0x4000
-#define TIMEFLAG2   0x8000  /* Fixme: Purpose is unknown.  */
+#define TIMEFLAG2   0x8000  /* Reserved flag.  */
 
 /* The current operation mode.  */
 unsigned char operation_mode;
@@ -396,7 +396,7 @@ signed long avg_temperature;
 /* The hysteresis of the boiler temperature measured in 0.1 degress.
    For example: 25 means that a target boiler temperature of 50 degree
    Celsius may oscillate between 47.5 and 52.5. */
-#define BOILER_HYSTERESIS 25
+#define BOILER_HYSTERESIS 20
 
 /* The desired temperatur of the boiler.  */
 signed int boiler_temperature_target; 
@@ -2441,8 +2441,15 @@ main (void)
 
 
 /*
+Writing:
+ avrdude -c usbasp -pm32 -U flash:w:heating-control.hex
+Fuse bits:
+ lfuse = 0xEF (8MHz crystal)
+ hfuse = 0xD1 (ie. disable JTAG)
+avrdude -c usbasp -pm32 -v -B 4 -U lfuse:w:0xEF:m
+avrdude -c usbasp -pm32 -v -B 4 -U hfuse:w:0xD1:m
+
 Local Variables:
 compile-command: "avr-gcc -Wall -Wno-pointer-sign -g -mmcu=atmega32 -Os -o heating-control.elf heating-control.c -lc ; avr-objcopy -O ihex -j .text -j .data  heating-control.elf heating-control.hex"
 End:
- avrdude -c usbasp -pm32 -U flash:w:heating-control.hex
 */

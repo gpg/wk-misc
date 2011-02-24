@@ -1,5 +1,7 @@
 #!/bin/sh
 
+signing_key="0x4F25E3B6"
+signing_options=" --digest-algo SHA384"
 opt_sign=yes
 ext=bz2
 extz=j
@@ -59,14 +61,14 @@ tar x${extz}f "$pack-$prev_ver.tar.$ext"
 # We remove some files from the directories because we assume
 # that they are either binary or can be build using the proper tools:
 #  .tlb - Windows  Type Library
-#  .dvi 
-#  .ps  
+#  .dvi
+#  .ps
 #  .eps
-#  .pdf 
+#  .pdf
 #  .gmo - compiled gettext files
 #  .der - DER encoded test stuff
 #  .ber - BER encoded test stuff
-#  .png 
+#  .png
 #  .jpg
 tmp="dvi ps eps pdf gmo der ber png jpg"
 find_args="-type f -name *.tlb -or -name *.info -or -name *.info-[0-9]"
@@ -118,7 +120,7 @@ rm $tmp_name
 
 if [ $opt_sign = yes ]; then
 echo "Signing and compressing patch file"
-gpg2 --clearsign --not-dash-escaped -u 1CE0C630 \
+gpg2 --clearsign --not-dash-escaped -u $signing_key $signing_options \
     < $diff_name | bzip2 --best > $diff_name.bz2
 else
 echo "compressing patch file"
@@ -134,7 +136,7 @@ cd ..
 
 if ! diff -urP "$pack-$prev_ver/" "$pack-$curr_ver/" >/dev/null ; then
    echo "compare failed"
-   
+
    while :; do
      echo "what shall we do: (v)iew, (i)gnore, (a)bort ?" >&2
      read
@@ -164,4 +166,3 @@ rm -rf "$pack-$curr_ver"
 rm -rf "$pack-$prev_ver"
 
 echo "Patch file $diff_name.bz2 is good."
-
