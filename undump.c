@@ -17,6 +17,8 @@
  * 2010-09-02 wk  Changed to GPLv3.
  *                Fixed detection of write errors.  Reported by Marcus
  *                Brinkmann
+ * 2011-02-24 wk  Allow for 0x an \x prefixes.  Print offset with
+ *                the error messages.
  */
 
 #include <stdio.h>
@@ -38,44 +40,97 @@ main (int argc, char **argv )
 {
   int c1, c2;
   unsigned int value;
+  unsigned long lnr, off;
 
-  if ( argc > 1 ) 
+  if ( argc > 1 )
     {
       fprintf (stderr, "usage: undump < input\n");
       return 1;
     }
-    
 
+
+  lnr = 1;
+  off = 0;
   while ( (c1=getchar ()) != EOF )
     {
+      off++;
+      if (c1 == '\n')
+        lnr++;
       if (ascii_isspace (c1))
         continue;
+      if (c1 == '\\')
+        {
+          /* Assume the hex digits are prefixed with \x.  */
+          c1 = getchar ();
+          off++;
+          if (c1 != EOF)
+            {
+              c2 = getchar ();
+              off++;
+            }
+          if (c1 != 'x' || c2 == EOF)
+            {
+              fprintf (stderr, "undump: incomplete \\x "
+                       "prefix at line %lu, off %lu\n", lnr, off);
+              return 1;
+            }
+          c1 = c2;
+        }
       if (!hexdigitp (c1))
         {
-          fprintf (stderr, "undump: non hex-digit encountered\n");
+          fprintf (stderr,
+                   "undump: non hex-digit encountered at line %lu, off %lu\n",
+                   lnr, off);
           return 1;
         }
       if ( (c2=getchar ()) == EOF )
         {
-          fprintf (stderr, "undump: error reading second nibble\n");
+          fprintf (stderr,
+                   "undump: error reading second nibble at line %lu, off %lu\n",
+                   lnr, off);
           return 1;
         }
+      off++;
+      if (c2 == '\n')
+        lnr++;
       if (!hexdigitp (c2))
         {
-          fprintf (stderr, "undump: second nibble is not a hex-digit\n");
-          return 1;
+          if (c1 == '0' && c2 == 'x')
+            {
+              /* Assume the hex digits are prefixed with 0x.  */
+              c1 = getchar ();
+              off++;
+              if (c1 != EOF)
+                {
+                  c2 = getchar ();
+                  off++;
+                }
+              if (c1 == EOF || c2 == EOF || !hexdigitp (c1) || !hexdigitp (c2))
+                {
+                  fprintf (stderr, "undump: incomplete 0x "
+                           "prefix at line %lu, off %lu\n", lnr, off);
+                  return 1;
+                }
+            }
+          else
+            {
+              fprintf (stderr, "undump: second nibble is not a hex-digit"
+                       " at line %lu, off %lu\n", lnr, off);
+              return 1;
+            }
         }
       value = xtoi_1 (c1) * 16 + xtoi_1 (c2);
       putchar (value);
     }
   if (ferror (stdin))
     {
-      fprintf (stderr, "undump: read error\n");
+      fprintf (stderr, "undump: read error at line %lu, off %lu\n", lnr, off);
       return 1;
     }
   if (ferror (stdout))
     {
-      fprintf (stderr, "undump: write error\n");
+      fprintf (stderr, "undump: write error at input line %lu, off %lu\n",
+               lnr, off);
       return 1;
     }
 
@@ -87,5 +142,3 @@ Local Variables:
 compile-command: "cc -Wall -o undump undump.c"
 End:
 */
-
-
