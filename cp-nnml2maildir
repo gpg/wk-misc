@@ -1,0 +1,24 @@
+#!/bin/sh
+
+dir="$1"
+newdir="$2"
+
+[ -z $newdir ] && exit 1
+
+if [ ! -d "$newdir" ]; then
+  mkdir "$newdir"
+  chmod g-rx,o-rx "$newdir"
+  mkdir           "$newdir"/tmp "$newdir"/cur "$newdir"/new
+  chmod g-rx,o-rx "$newdir"/tmp "$newdir"/cur "$newdir"/new
+fi
+
+
+ls "$dir" | while read tmp dummy; do
+ digits=$(echo "$tmp" | sed  's/[^0-9]//g')
+ oldname="$dir/$tmp"
+ newname=${newdir}/cur/$(stat -c %Y.${digits}i%i.vigenere:2,S  "$oldname")
+ echo mv "$oldname" '->' "$newname" >&2
+ mv "$oldname" "$newname"
+done
+echo mv "$dir/.marks" $newdir/gnus-marks >&2
+mv "$dir/.marks" $newdir/gnus-marks

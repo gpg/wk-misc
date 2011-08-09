@@ -1,0 +1,42 @@
+#!/bin/sh
+
+set -e
+
+dir="$1"
+newdir="$2"
+hostname=$(hostname)
+
+if ! $HOME/w/misc-scripts/readgnusmarks --version >/dev/null 2>&1; then
+    echo "the readgnusmarks tool is missing" >&2
+    exit 2
+fi
+
+[ -z $newdir ] && exit 1
+
+if [ ! -d "$newdir" ]; then
+  mkdir "$newdir"
+  chmod 2700 "$newdir"
+  mkdir      "$newdir"/tmp "$newdir"/cur "$newdir"/new
+  chmod 2700 "$newdir"/tmp "$newdir"/cur "$newdir"/new
+fi
+
+newdir=$(cd "$newdir" && pwd)
+
+cd $dir
+if [ ! -f .marks ]; then
+    echo ".marks file missing" >&2
+    exit 1
+fi
+
+script=$(tempfile)
+
+ls | $HOME/w/misc-scripts/readgnusmarks --verbose .marks "$newdir" >$script
+
+echo "moving $(cat $script | wc -l) files to $newdir" >&2
+sh $script
+rm $script
+
+
+
+
+
