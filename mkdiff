@@ -6,16 +6,16 @@ opt_sign=yes
 ext=bz2
 extz=j
 opt_with_po=no
-if [ "$1" == "--gzip-source" ]; then
+if [ "$1" = "--gzip-source" ]; then
   ext=gz
   extz=z
   shift
 fi
-if [ "$1" == "--no-sign" ]; then
+if [ "$1" = "--no-sign" ]; then
   opt_sign=no
   shift
 fi
-if [ "$1" == "--with-po" ]; then
+if [ "$1" = "--with-po" ]; then
   opt_with_po=yes
   shift
 fi

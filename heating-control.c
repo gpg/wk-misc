@@ -1,7 +1,7 @@
 /* heating-control.c - heating control for an ATmega32.
    (c) Holger Buss
    Copyright (C) 2010 Werner Koch
-   
+
    FIXME:  Figure out copyright and license stuff.
 
    All new code (Werner Koch) shall be under the GPLv3+.
@@ -69,8 +69,8 @@
 #define LCD_DATA1_PIN    5            /* Pin # for data bit 1.   */
 #define LCD_DATA2_PIN    6            /* Pin # for data bit 2.   */
 #define LCD_DATA3_PIN    7            /* Pin # for data bit 3.   */
-#define LCD_DATA_MASK    0b11110000   /* Mask for the data pins. */ 
-#define LCD_PIN_MASK     0b11110111   /* Mask for all used pins. */ 
+#define LCD_DATA_MASK    0b11110000   /* Mask for the data pins. */
+#define LCD_PIN_MASK     0b11110111   /* Mask for all used pins. */
 
 /* UART defs.  */
 #define BAUD       9600ul
@@ -130,7 +130,7 @@ get_shift_offset (void)
 static inline void
 put_shift_offset (uint8_t value)
 {
-  eeprom_update_byte (&ee_shift_offset, value);   
+  eeprom_update_byte (&ee_shift_offset, value);
 }
 
 /* The number of characteristics we support; they are mapped one to
@@ -311,7 +311,7 @@ volatile unsigned int burner_time;
 volatile unsigned int total_time;
 
 /* The names of the weekdays.  */
-static const PROGMEM char weekday_names[7][3] = 
+static const PROGMEM char weekday_names[7][3] =
   { "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So" };
 
 
@@ -379,7 +379,7 @@ volatile char run_atcommand;
 signed int  real_temperature[2];
 signed int  outside_temperature;
 signed int  boiler_temperature;
-signed long avg_temperature;        
+signed long avg_temperature;
 
 #define LED_NIGHT        (PORTB)
 #define LED_NIGHT_BIT    (0)
@@ -399,7 +399,7 @@ signed long avg_temperature;
 #define BOILER_HYSTERESIS 20
 
 /* The desired temperatur of the boiler.  */
-signed int boiler_temperature_target; 
+signed int boiler_temperature_target;
 
 
 #define MK_TIME(h,m)  ((h)*60+(m))
@@ -455,9 +455,9 @@ _lcd_read (uint8_t read_ctrl)
   uint8_t value = 0;
 
   if (read_ctrl)
-    _lcd_rs_low (); 
+    _lcd_rs_low ();
   else
-    _lcd_rs_high (); 
+    _lcd_rs_high ();
   _lcd_rw_high ();
 
   /* Configure data pins as input.  */
@@ -574,7 +574,7 @@ lcd_init (void)
   lcd_delay_ms (1);
 
   /* Set function: 4bit,     2 lines,  5x7.     */
-  /*               (bit 4=0) (bit 3=1) (bit2=0) */ 
+  /*               (bit 4=0) (bit 3=1) (bit2=0) */
   lcd_command (0x20 | 8 );
 
   /* Display off.  */
@@ -604,7 +604,7 @@ lcd_load_user_glyphs (void)
       { /* glyph 0 - moon */
         0b0000000,
         0b0000000,
-        0b0001110,  
+        0b0001110,
         0b0011110,
         0b0011110,
         0b0001110,
@@ -686,7 +686,7 @@ void
 lcd_puts (const char *s)
 {
   uint8_t c;
-  
+
   while ((c = *s++))
     lcd_putc (c);
 }
@@ -697,7 +697,7 @@ void
 _lcd_puts_P (const char *progmem_s)
 {
   uint8_t c;
-  
+
   while ((c = pgm_read_byte (progmem_s++)))
     lcd_putc (c);
 }
@@ -707,7 +707,7 @@ _lcd_puts_P (const char *progmem_s)
 
 #define LCD      0
 #define SERIAL  1
-#define LEADING_ZERO  -1 
+#define LEADING_ZERO  -1
 #define lcd_int(w, a, p)   format_int (LCD,    (w), (a), (p))
 #define uart_int(w, a, p)  format_int (SERIAL, (w), (a), (p))
 
@@ -717,14 +717,14 @@ uart_putc (char c)
   while (!bit_is_set (UCSRA, UDRE))
     ;
   UDR = c;
-}                                              
+}
 
 
 void
 uart_puts (const char *s)
 {
   uint8_t c;
-  
+
   while ((c = *s++))
     {
       if (c == '\n')
@@ -738,7 +738,7 @@ void
 _uart_puts_P (const char *progmem_s)
 {
   uint8_t c;
-  
+
   while ((c = pgm_read_byte (progmem_s++)))
     {
       if (c == '\n')
@@ -755,7 +755,7 @@ do_putchar (char c)
     lcd_putc (c);
   else
     uart_putc (c);
-}                                              
+}
 
 
 void
@@ -764,21 +764,21 @@ format_int (char output, signed int value, signed char width,
 {
   unsigned int table[] = {0,1,10,100,1000,10000,32767};
   signed char i;
-  unsigned char pos, zero;  
+  unsigned char pos, zero;
   char nowidth = 0;
-   
+
   actionflags.output = output;
-  
-  if (width < 0)                         
+
+  if (width < 0)
     {
       width = - width;
-      if (value < 0) 
+      if (value < 0)
         {
           value = -value;
           do_putchar ('-');
         }
       else
-        do_putchar ('+');                    
+        do_putchar ('+');
     }
   else if (!width)
     {
@@ -795,27 +795,27 @@ format_int (char output, signed int value, signed char width,
     {
       for (i=0; i < width; i++)
         do_putchar ('?');
-      return;                            
+      return;
     }
-  
-  if (value >= table[width + 1])     
+
+  if (value >= table[width + 1])
     {
       for (i=0; i < width; i++)
         do_putchar ('?');
-      return;                            
+      return;
     }
-  
+
   zero = (precision < 0);
-  
+
   for (i=width; i > 0; i--)
     {
       if (i == precision)
         {
           do_putchar ('.');
           zero = 1;
-        } 
+        }
       pos = '0' + (value / table[i]);
-      
+
       if ((pos == '0') && !zero && i != 1)
         {
           if (!nowidth)
@@ -823,11 +823,11 @@ format_int (char output, signed int value, signed char width,
         }
       else
         {
-          zero = 1;                        
+          zero = 1;
           do_putchar (pos);
-          value %= table[i];            
+          value %= table[i];
         }
-    }   
+    }
 }
 
 
@@ -841,7 +841,7 @@ read_adc (unsigned char source)
     ;
   ADCSRA |= _BV(ADIF);  /* Clear ADC Interrupt Flag.  */
   /* Read the value to scale it. */
-  return ((ADCW*25)/4)-2250; 
+  return ((ADCW*25)/4)-2250;
 }
 
 
@@ -857,12 +857,12 @@ read_t_sensors (unsigned char first_time)
   if (first_time)
     outside_temperature = value;
 
-  
+
   real_temperature[1] = 0;  /* Fixme: Take from third sensor.  */
 
   /* Slowly adjust our idea of the outside temperature to the
      readout. */
-  if (actionflags.minute) 
+  if (actionflags.minute)
     {
       if (outside_temperature > value)
         outside_temperature--;
@@ -888,7 +888,7 @@ ISR (TIMER2_COMP_vect)
 {
   static unsigned int clock; /* Milliseconds of the current minute.  */
   static unsigned int tim;
-  
+
   clock++;
 
   if (!(clock % 2000))
@@ -903,25 +903,25 @@ ISR (TIMER2_COMP_vect)
         actionflags2.send_data = 1;
     }
 
-  if (clock == 60000) 
+  if (clock == 60000)
    {
      /* One minute has passed.  Bump the current time.  */
-     current_time++; 
-     clock = 0; 
+     current_time++;
+     clock = 0;
      actionflags.minute = 1;
-     
-     if (!(current_time % 1440)) 
+
+     if (!(current_time % 1440))
        actionflags.day = 1;
 
-     if (current_time >= 1440*7) 
+     if (current_time >= 1440*7)
        current_time = 0;
-     
+
      /* Update the average temperature.  */
      avg_temperature += outside_temperature / 10;
-   } 
+   }
 
   if (++tim == 2000)
-    { 
+    {
       /* Two seconds passed.  */
       if (bit_is_set (RELAY_BOILER, RELAY_BOILER_BIT))
         burner_time++;
@@ -940,7 +940,7 @@ ISR (TIMER2_COMP_vect)
       /* Request an LCD refresh every 350ms.  */
       if (!(clock % 350))
         actionflags.refresh_lcd = 1;
-    }      
+    }
 
 }
 
@@ -978,7 +978,7 @@ ISR (USART_RXC_vect)
       else
         state = 0;
       break;
-    case 2: 
+    case 2:
       if (c == 'T' || c == 't')
         {
           state = 3;
@@ -1020,21 +1020,21 @@ ISR (USART_RXC_vect)
 ISR (INT1_vect)
 {
   unsigned char key;
-  
+
   key = KEY_2;
-  
+
   if (MCUCR==0x08) /* Falling edge */
     {
       current_key = !key? VK_DOWN : VK_UP;
       MCUCR = 0x0C;
     }
   else /* Rising edge.  */
-    {  
-      MCUCR = 0x08;  
+    {
+      MCUCR = 0x08;
       current_key = !key? VK_UP : VK_DOWN;
     }
   GIFR |= 0x80;
-}                      
+}
 #endif /*USE_TURN_PUSH*/
 
 
@@ -1050,11 +1050,11 @@ void
 poll_keyboard (void)
 {
   static char key1, key2, key3, key4, key5;
-  
+
   current_key = VK_NONE;
 
 #ifdef USE_TURN_PUSH
-  
+
 #else
   if (KEY_1)
     DEBOUNCE (key1, VK_MENU);
@@ -1063,9 +1063,9 @@ poll_keyboard (void)
 
   if(KEY_2)
     DEBOUNCE (key2, VK_DOWN);
-  else 
+  else
     key2 = 0;
-  
+
   if (KEY_3)
     DEBOUNCE (key3, VK_UP);
   else
@@ -1084,7 +1084,7 @@ poll_keyboard (void)
 
   if (current_key != VK_NONE)
     lit_timer = 20; /* Set to n seconds. */
-}                   
+}
 #undef DEBOUNCE
 #undef DEBOUNCE_COUNT
 
@@ -1096,25 +1096,25 @@ get_operation_mode (unsigned int time)
   unsigned char i;
   uint16_t t;
   uint8_t shiftoff;
-   
-  for (i = 0; i < 32; i++) 
-    {  
+
+  for (i = 0; i < 32; i++)
+    {
       shiftoff = get_shift_offset ();
       t = get_timer_time (i + shiftoff);
       if ((t & WORKDAY))
         {
           if (time  < (6*1440)  /* Monday to Friday.  */
               && ((t & ~WORKDAY) % 1440) == (time % 1440))
-            { 
+            {
               result = get_timer_mode (i + shiftoff);
               break;
             } /* FiXME:  original remark:  please test. */
         }
-      else if (t == time) 
-        { 
+      else if (t == time)
+        {
           result = get_timer_mode (i + shiftoff);
-          break; 
-        } 
+          break;
+        }
     }
 
   return result;
@@ -1123,7 +1123,7 @@ get_operation_mode (unsigned int time)
 
 void
 status_menu (void)
-{  
+{
   static unsigned char index, blink;
 
   if (actionflags2.reset_status_menu)
@@ -1133,45 +1133,45 @@ status_menu (void)
     }
 
   if (actionflags.menu)
-    { 
+    {
       lcd_gotoxy (2, 0);
       lcd_puts_P ("             %");
       actionflags.menu = 0;
-    }                  
+    }
 
   if (actionflags.refresh_lcd)
     {
       lcd_gotoxy (0, 0); _lcd_puts_P (weekday_names[current_time/1440]);
-   
+
       lcd_gotoxy (3 ,0); lcd_int ((current_time % 1440) / 60, 2 , LEADING_ZERO);
-      
+
       lcd_putc (blink? ':' : ' ');
       blink = !blink;
-     
+
       lcd_int ((current_time % 1440) % 60, 2 ,LEADING_ZERO);
-      lcd_gotoxy (0, 1); 
+      lcd_gotoxy (0, 1);
       switch (actionflags2.show_left_temp)
-        { 
+        {
         case 0:
-          lcd_puts_P ("Ta="); 
-          lcd_int (real_temperature[0]/10, -2, 0); 
+          lcd_puts_P ("Ta=");
+          lcd_int (real_temperature[0]/10, -2, 0);
           break;
         case 1:
-          lcd_puts_P ("Tb="); 
-          lcd_int (real_temperature[1]/10, -2, 0); 
+          lcd_puts_P ("Tb=");
+          lcd_int (real_temperature[1]/10, -2, 0);
           break;
         default:
           lcd_puts_P ("T*=");
-          lcd_int (outside_temperature/10, -2, 0); 
+          lcd_int (outside_temperature/10, -2, 0);
           break;
-        }                                                         
+        }
       lcd_putc ('\xdf'); lcd_putc(' ');
 
       switch (actionflags2.show_right_temp)
-        { 
+        {
         case 0:
-          lcd_puts_P ("Ts="); 
-          lcd_int (boiler_temperature_target/10, -2, 0); 
+          lcd_puts_P ("Ts=");
+          lcd_int (boiler_temperature_target/10, -2, 0);
           break;
         default:
           lcd_puts_P("Tk=");
@@ -1179,30 +1179,30 @@ status_menu (void)
           break;
         }
       lcd_putc ('\xdf'); lcd_putc('C');
- 
+
       lcd_gotoxy(12,0);
       lcd_int ( total_time? ((long) burner_time * 100) / total_time:0, 3, 0);
 
       lcd_gotoxy(10,0);
       switch (operation_mode)
         {
-        case DAY_MODE:   
-        case NIGHT_MODE:  
+        case DAY_MODE:
+        case NIGHT_MODE:
         case ABSENT_MODE:
           lcd_putc (operation_mode);
           break;
-        case DEACTIVATED_MODE: 
+        case DEACTIVATED_MODE:
           lcd_putc (' ');
           break;
         }
-      
-      actionflags.refresh_lcd = 0; 
-    } 
+
+      actionflags.refresh_lcd = 0;
+    }
 
 
-  
+
   switch (index)
-      { 
+      {
       case 0:
         if (current_key == VK_UP || current_key == VK_DOWN)
           {
@@ -1210,20 +1210,20 @@ status_menu (void)
             actionflags.menu = 1;
           }
         break;
-        
+
       case 1: /* Change the hour.  */
-        lcd_gotoxy (2,0); lcd_putc ('\x7e');  
+        lcd_gotoxy (2,0); lcd_putc ('\x7e');
         if (current_key == VK_UP)
-          current_time += 60; 
+          current_time += 60;
         else if (current_key == VK_DOWN && current_time > 60)
-          current_time -= 60; 
+          current_time -= 60;
         break;
 
       case 2: /* Change the minute.  */
-         lcd_gotoxy (2,0); lcd_putc (' ');  
+         lcd_gotoxy (2,0); lcd_putc (' ');
          lcd_gotoxy (8,0); lcd_putc ('\x7f');
          if (current_key == VK_UP)
-           current_time ++; 
+           current_time ++;
          else if (current_key == VK_DOWN && current_time)
            current_time --;
          break;
@@ -1231,7 +1231,7 @@ status_menu (void)
       case 3: /* Change the day.  */
          lcd_gotoxy (8,0); lcd_putc (' ');
          lcd_gotoxy (2,0); lcd_putc ('\x7f');
-         if (current_key == VK_UP) 
+         if (current_key == VK_UP)
            {
              if (current_time < 6*1440)
                current_time += 1440;
@@ -1242,35 +1242,35 @@ status_menu (void)
            {
              if (current_time > 1440)
                current_time -= 1440;
-             else 
+             else
                current_time += 6*1440;
            }
          break;
       }
-    
-    if (current_key == VK_ENTER) 
+
+    if (current_key == VK_ENTER)
       {
         if (index < 3)
           index++;
-        else 
-          { 
-            index = 0;      
+        else
+          {
+            index = 0;
             actionflags.menu = 1;
           }
-      }                     
+      }
 }
 
 
-unsigned char 
+unsigned char
 edit_timer (unsigned char pos)
 {
   static unsigned int tmp_wert, time, tag_time;
   static unsigned char tmp_mode, index;
   uint16_t t;
-  
+
 
   pos += get_shift_offset ();
-  
+
   if (actionflags.menu)
     {
       actionflags.menu = 0;
@@ -1282,16 +1282,16 @@ edit_timer (unsigned char pos)
         lcd_puts_P ("WT");
       else
         _lcd_puts_P (weekday_names[t % (1440*7) / 1440]);
-      
+
       lcd_gotoxy (0, 1); lcd_puts_P ("Mode   ");
       time = t & ~(WORKDAY|TIMEFLAG2);
       tmp_mode = get_timer_mode (pos);
-      tmp_wert = time;                            
-      tag_time = (time / 1440)*1440; 
+      tmp_wert = time;
+      tag_time = (time / 1440)*1440;
       if (t & WORKDAY)
         tag_time = WORKDAY;
     }
-   
+
   lcd_gotoxy (7 ,0);
   lcd_int ((tmp_wert % 1440) / 60, 2, LEADING_ZERO);
   lcd_putc(':');
@@ -1301,50 +1301,50 @@ edit_timer (unsigned char pos)
   switch (tmp_mode)
     {
     case DAY_MODE:
-      lcd_puts_P ("Tag      "); 
+      lcd_puts_P ("Tag      ");
       lcd_gotoxy (14, 0);
       lcd_putc (tmp_mode);
       break;
 
     case NIGHT_MODE:
-      lcd_puts_P ("Nacht    "); 
+      lcd_puts_P ("Nacht    ");
       lcd_gotoxy (14, 0);
       lcd_putc (tmp_mode);
       break;
 
     case ABSENT_MODE:
-      lcd_puts_P ("Abwesend "); 
+      lcd_puts_P ("Abwesend ");
       lcd_gotoxy (14, 0);
       lcd_putc (tmp_mode);
       break;
 
     case DEACTIVATED_MODE:
-      lcd_puts_P ("DEAKTIV  "); 
+      lcd_puts_P ("DEAKTIV  ");
       lcd_gotoxy (14, 0);
       lcd_putc ('-');
       break;
     }
-  
+
   switch (index)
     {
     case 0:
-      lcd_gotoxy (6, 0); lcd_putc ('\x7e');  
+      lcd_gotoxy (6, 0); lcd_putc ('\x7e');
       if (current_key == VK_UP)
-        tmp_wert += 60; 
+        tmp_wert += 60;
       else if (current_key == VK_DOWN)
         tmp_wert -= 60;
       break;
-      
-    case 1: 
-      lcd_gotoxy (6,0); lcd_putc(' ');  
+
+    case 1:
+      lcd_gotoxy (6,0); lcd_putc(' ');
       lcd_gotoxy (12,0); lcd_putc('\x7f');
       if (current_key == VK_UP)
-        tmp_wert ++; 
+        tmp_wert ++;
       else if (current_key == VK_DOWN)
         tmp_wert --;
       break;
-      
-    case 2: 
+
+    case 2:
       lcd_gotoxy (12,0); lcd_putc (' ');
       lcd_gotoxy (6,1); lcd_putc ('\x7e');
       if (current_key == VK_UP)
@@ -1363,20 +1363,20 @@ edit_timer (unsigned char pos)
         }
       break;
     }
-  
-  if (current_key == VK_ENTER) 
+
+  if (current_key == VK_ENTER)
     {
       if (index < 2)
         index++;
-      else 
-        { 
+      else
+        {
           put_timer_mode (pos, tmp_mode);
           put_timer_time (pos, (tmp_wert % 1440) | tag_time);
-          index = 0;      
+          index = 0;
           actionflags.menu = 1;
           return 1;
         }
-    }                     
+    }
    return 0;
 }
 
@@ -1384,83 +1384,83 @@ edit_timer (unsigned char pos)
 void
 show_timer (char x, char y, unsigned char pos)
 {
-  unsigned int time;  
+  unsigned int time;
   uint8_t mode;
-  
+
   pos += get_shift_offset ();
-  
+
   time = get_timer_time (pos) & ~(WORKDAY|TIMEFLAG2);
   mode = get_timer_mode (pos);
-  
+
   lcd_gotoxy (x,y);
-     
+
   if (mode == DEACTIVATED_MODE)
-    lcd_puts_P (" --:--"); 
-  else 
-    {  
+    lcd_puts_P (" --:--");
+  else
+    {
       lcd_putc (mode);
       lcd_int ((time % 1440) / 60, 2, LEADING_ZERO);
       lcd_putc(':');
-      lcd_int ((time % 1440) % 60, 2, LEADING_ZERO); 
+      lcd_int ((time % 1440) % 60, 2, LEADING_ZERO);
     }
 }
 
 
-void 
+void
 timer_menu (void)
-{                 
+{
   static unsigned char pos, index, edit;
   static unsigned char clearlcd = 1;
   uint16_t atime;
 
-  if (actionflags.menu) 
-   { 
+  if (actionflags.menu)
+   {
      actionflags.menu = 0;
-     edit = 0; 
+     edit = 0;
      clearlcd = 1;
    };
-  
+
   if (edit == 2) /* Edit timer.  */
     {
       if (edit_timer (pos+index))
-        edit = 0;   
+        edit = 0;
     }
   else /* Select timer.  */
     {
       if (clearlcd)
-        {  
+        {
           lcd_gotoxy(0,0);
           atime = get_timer_time (pos);
           if (atime & WORKDAY)
-            lcd_puts_P ("WT");                           
-          else 
+            lcd_puts_P ("WT");
+          else
             _lcd_puts_P (weekday_names[atime % (1440*7) / 1440]);
-      
+
           lcd_gotoxy(0,1); lcd_int((get_shift_offset ()/32)+1, 1, 0);
-          
+
           show_timer (3 ,0, pos);
           show_timer (10,0, pos+1);
           show_timer (3 ,1, pos+2);
           show_timer (10,1, pos+3);
-          clearlcd = 0;   
+          clearlcd = 0;
           lcd_gotoxy (2,0); lcd_putc(' ');
-          lcd_gotoxy (9,0); lcd_putc(' '); 
+          lcd_gotoxy (9,0); lcd_putc(' ');
           lcd_gotoxy (1,1); lcd_putc(' '); lcd_putc (' ');
-          lcd_gotoxy (9,1); lcd_putc(' '); 
-        }                  
-      
-      clearlcd = 1; 
-  
+          lcd_gotoxy (9,1); lcd_putc(' ');
+        }
+
+      clearlcd = 1;
+
       if (edit == 0)
         {
           if (current_key == VK_UP)
             {
               if (pos < 28)
-                pos += 4; 
+                pos += 4;
               else
                 {
-                  pos = 0; 
-                  current_submenu = 255; 
+                  pos = 0;
+                  current_submenu = 255;
                 }
             }
           else if (current_key == VK_DOWN)
@@ -1471,7 +1471,7 @@ timer_menu (void)
                 pos = 28;
             }
           else
-            clearlcd = 0;    
+            clearlcd = 0;
         }
       else
         {
@@ -1479,7 +1479,7 @@ timer_menu (void)
             {
               if (index < 3)
                 index++;
-              else 
+              else
                 index = 0;
             }
           else if (current_key == VK_DOWN)
@@ -1487,7 +1487,7 @@ timer_menu (void)
               if (index > 0)
                 index--;
               else
-                index = 3; 
+                index = 3;
             }
           else
             clearlcd = 0;
@@ -1499,23 +1499,23 @@ timer_menu (void)
             case 2: lcd_gotoxy (2, 1); break;
             case 3: lcd_gotoxy (9, 1); break;
             }
-          lcd_putc ('\x7e'); 
+          lcd_putc ('\x7e');
         }
-      
-      if (current_key == VK_ENTER) 
-        { 
-          if (edit == 0) 
+
+      if (current_key == VK_ENTER)
+        {
+          if (edit == 0)
             edit = 1;
-          else if (edit == 1) 
-            {  
-              edit = 2;               
+          else if (edit == 1)
+            {
+              edit = 2;
               actionflags.menu = 1;
               current_key = VK_NONE;
               edit_timer (pos+index);
-            }   
-          clearlcd = 1;        
+            }
+          clearlcd = 1;
         }
-    }   
+    }
 }
 
 
@@ -1527,14 +1527,14 @@ shift_menu (void)
     /* lcd_gotoxy(0,0); lcd_puts_P("Timer - Gruppe   "); */
     lcd_gotoxy (0,1); lcd_puts_P ("setzen");
     actionflags.menu = 0;
-  }                  
-                                            
+  }
+
   lcd_gotoxy (10,1); lcd_int (get_shift_offset () / 32 +1, 1, 0);
-  
-  if ((current_key == VK_UP) || (current_key == VK_DOWN)) 
+
+  if ((current_key == VK_UP) || (current_key == VK_DOWN))
     put_shift_offset (get_shift_offset ()? 0 : 32);
-  
-  if (current_key == VK_ENTER) 
+
+  if (current_key == VK_ENTER)
     current_submenu = 255;
 }
 
@@ -1543,21 +1543,21 @@ void
 temperature_menu (void)
 {
   static unsigned char kennlinie, index;
-  
+
   if (actionflags.menu)
     {
       lcd_gotoxy (0, 0); lcd_puts_P ("  \x3   \xdf bei    \xdf");
       lcd_gotoxy (0, 1); lcd_puts_P ("  \x4   \xdf bei    \xdf");
       actionflags.menu = 0;
-    }                  
-  
+    }
+
   lcd_gotoxy (0,0); lcd_putc (kennlinie);
-  
-  lcd_gotoxy (4,0);  lcd_int (get_t_boiler_max (kennlinie) / 10, 2, 0); 
-  lcd_gotoxy (4,1);  lcd_int (get_t_boiler_min (kennlinie) / 10, 2, 0); 
-  lcd_gotoxy (12,0); lcd_int (get_t_curve_low (kennlinie) / 10, -2, 0); 
-  lcd_gotoxy (12,1); lcd_int (get_t_curve_high  (kennlinie) / 10, -2, 0); 
- 
+
+  lcd_gotoxy (4,0);  lcd_int (get_t_boiler_max (kennlinie) / 10, 2, 0);
+  lcd_gotoxy (4,1);  lcd_int (get_t_boiler_min (kennlinie) / 10, 2, 0);
+  lcd_gotoxy (12,0); lcd_int (get_t_curve_low (kennlinie) / 10, -2, 0);
+  lcd_gotoxy (12,1); lcd_int (get_t_curve_high  (kennlinie) / 10, -2, 0);
+
   switch (index)
     {
     case 0:
@@ -1565,51 +1565,51 @@ temperature_menu (void)
       if (current_key == VK_UP)
         {
           if (kennlinie < N_CHARACTERISTICS-1)
-            kennlinie++; 
-          else 
+            kennlinie++;
+          else
             {
               kennlinie = 0;
-              current_submenu = 255; 
+              current_submenu = 255;
             }
         }
-      
+
       if (current_key == VK_DOWN)
         {
-          if (kennlinie > 0) 
+          if (kennlinie > 0)
             kennlinie--;
           else
             kennlinie = N_CHARACTERISTICS-1;
         }
       break;
-      
+
     case 1:
       lcd_gotoxy (7,0); lcd_putc ('\x7f');
       if (current_key == VK_UP)
         inc_t_boiler_max (kennlinie, 10);
-      if (current_key == VK_DOWN) 
+      if (current_key == VK_DOWN)
         inc_t_boiler_max (kennlinie, -10);
       break;
 
     case 2:
-      lcd_gotoxy (7,0); lcd_putc(' ');  
+      lcd_gotoxy (7,0); lcd_putc(' ');
       lcd_gotoxy (11,0); lcd_putc('\x7e');
       if (current_key == VK_UP)
         inc_t_curve_low (kennlinie, 10);
       if (current_key == VK_DOWN)
         inc_t_curve_low (kennlinie, -10);
       break;
-      
+
     case 3:
-      lcd_gotoxy (11,0); lcd_putc (' ');  
+      lcd_gotoxy (11,0); lcd_putc (' ');
       lcd_gotoxy (7,1); lcd_putc ('\x7f');
       if (current_key == VK_UP)
         inc_t_boiler_min (kennlinie, 10);
       if (current_key == VK_DOWN)
         inc_t_boiler_min (kennlinie, -10);
       break;
-      
+
     case 4:
-      lcd_gotoxy (7,1); lcd_putc (' ');  
+      lcd_gotoxy (7,1); lcd_putc (' ');
       lcd_gotoxy (11,1); lcd_putc ('\x7e');
       if (current_key == VK_UP)
         inc_t_curve_high (kennlinie, 10);
@@ -1617,12 +1617,12 @@ temperature_menu (void)
         inc_t_curve_high (kennlinie, -10);
       break;
     }
-  
+
   if (current_key == VK_ENTER)
     {
       if (index < 4)
-        index++; 
-      else 
+        index++;
+      else
         index = 0;
     }
 }
@@ -1630,40 +1630,40 @@ temperature_menu (void)
 
 void
 pump_menu (void)
-{                          
+{
   static unsigned char tmp_mode;
   int celsius;
 
-  if (actionflags.menu)                          
-    {  
+  if (actionflags.menu)
+    {
       actionflags.menu = 0;
-      
+
       lcd_gotoxy (0,0); lcd_puts_P ("Pumpe aus       ");
       lcd_gotoxy (0,1); lcd_puts_P ("      Tk <    \xdf" "C");
-      
+
       switch (tmp_mode)
-        { 
+        {
         case NIGHT_MODE:
           lcd_gotoxy( 12,0); lcd_putc (tmp_mode);
           lcd_gotoxy (0,1); lcd_puts_P ("Nacht");
-          break; 
-     
+          break;
+
         case DAY_MODE:
           lcd_gotoxy (12,0); lcd_putc (tmp_mode);
           lcd_gotoxy (0,1); lcd_puts_P ("Tag");
-          break; 
-     
+          break;
+
         case ABSENT_MODE:
           lcd_gotoxy (12,0); lcd_putc (tmp_mode);
           lcd_gotoxy (0,1); lcd_puts_P ("Abw.");
-          break; 
+          break;
         }
-    }                  
-  
+    }
+
   lcd_gotoxy (11,1);
   celsius = get_t_pump_on (tmp_mode);
   lcd_int (celsius/10, 3, 0);
- 
+
   switch (tmp_mode)
     {
     case NIGHT_MODE:
@@ -1675,32 +1675,32 @@ pump_menu (void)
         inc_t_pump_on (tmp_mode, -10);
       break;
     }
-  
-  if (current_key == VK_ENTER) 
-    { 
+
+  if (current_key == VK_ENTER)
+    {
       if (tmp_mode < 2)
         tmp_mode++;
-      else 
+      else
         {
           tmp_mode = 0;
-          current_submenu = 255; 
+          current_submenu = 255;
         }
       actionflags.menu = 1;
-    }   
+    }
 }
 
 
 void
 history_menu (void)
-{                          
+{
   static unsigned char index, tmp_verb[5], tmp_temp[5];
-  unsigned char i; 
-  
-  if (actionflags.menu)                          
-    {  
+  unsigned char i;
+
+  if (actionflags.menu)
+    {
       actionflags.menu = 0;
-      index = get_history_index () - 1;          
-      
+      index = get_history_index () - 1;
+
       for (i = 0; i < 5; i++)
         {
           if (index >= MAX_LOGGING)
@@ -1708,7 +1708,7 @@ history_menu (void)
           tmp_verb[i] = get_consumption (index);
           tmp_temp[i] = get_temperature (index);
           index--;
-        }  
+        }
     }
 
   if (actionflags.refresh_lcd)
@@ -1722,26 +1722,26 @@ history_menu (void)
             lcd_puts_P (" - ");
         }
       lcd_putc ('%');
-      lcd_gotoxy (0,1);                                         
+      lcd_gotoxy (0,1);
       for (i=0; i < 5; i++)
         {
           if (tmp_temp[i] <= 100)
             lcd_int (tmp_temp[i], -2, 0);
-          else 
+          else
             lcd_puts_P (" - ");
         }
       lcd_putc ('\xdf');
     }
-  
+
   switch (current_key)
     {
     case VK_UP:
     case VK_DOWN:
     case VK_ENTER:
-      current_submenu = 255; 
-      actionflags.menu = 1;   
+      current_submenu = 255;
+      actionflags.menu = 1;
       break;
-   }   
+   }
 }
 
 
@@ -1749,42 +1749,42 @@ void
 select_menu (void)
 {
   static unsigned char index;
-  
+
   if (actionflags.refresh_lcd)
-    {  
+    {
       lcd_gotoxy (0, 1); lcd_puts_P ("                 ");
-      lcd_gotoxy (0, 0); 
-      switch (index) 
-        { 
-        case 0: 
-          lcd_puts_P ("Status           ");      
+      lcd_gotoxy (0, 0);
+      switch (index)
+        {
+        case 0:
+          lcd_puts_P ("Status           ");
           break;
-        case 1: 
+        case 1:
           lcd_puts_P ("Timer - Setup    ");
           break;
-        case 2: 
+        case 2:
           lcd_puts_P ("Schalt - Gruppe  ");
           break;
-        case 3: 
+        case 3:
           lcd_puts_P ("Kennlinien       ");
           break;
-        case 4: 
+        case 4:
           lcd_puts_P ("Wasserpumpe      ");
           break;
-        case 5: 
+        case 5:
           lcd_puts_P ("Verbrauch \xf5" "ber   ");
-          lcd_gotoxy (0, 1); 
+          lcd_gotoxy (0, 1);
           lcd_puts_P ("5 Tage");
           break;
-        }         
-    }                                        
+        }
+    }
 
   switch (current_key)
     {
     case VK_UP:
       if (index < 5)
         index++;
-      else 
+      else
         index = 0;
       break;
 
@@ -1794,18 +1794,18 @@ select_menu (void)
       else
         index = 5;
       break;
-  
+
     case VK_ENTER:
       current_submenu = index;
       actionflags.menu = 1;
       break;
-    } 
+    }
 }
 
 
-void 
+void
 get_controlpoint (void)
-{  
+{
   signed long target, dK, dT;
 
   if (outside_temperature < get_t_curve_low (operation_mode))
@@ -1826,14 +1826,14 @@ get_controlpoint (void)
                 - ((outside_temperature
                     - get_t_curve_low (operation_mode)) * dK) / dT);
     }
-  boiler_temperature_target = target; 
+  boiler_temperature_target = target;
 }
 
 
 void
 switch_lit_relay (int on)
 {
-  if (on) 
+  if (on)
     RELAY_LIT |= _BV(RELAY_LIT_BIT);
   else
     RELAY_LIT &= ~_BV(RELAY_LIT_BIT);
@@ -1842,7 +1842,7 @@ switch_lit_relay (int on)
 void
 switch_night_led (int on)
 {
-  if (on) 
+  if (on)
     LED_NIGHT |= _BV(LED_NIGHT_BIT);
   else
     LED_NIGHT &= ~_BV(LED_NIGHT_BIT);
@@ -1851,7 +1851,7 @@ switch_night_led (int on)
 void
 switch_absent_led (int on)
 {
-  if (on) 
+  if (on)
     LED_ABSENT |= _BV(LED_ABSENT_BIT);
   else
     LED_ABSENT &= ~_BV(LED_ABSENT_BIT);
@@ -1881,7 +1881,7 @@ relay_control (void)
             actionflags3.status_change = 1;
         }
     }
-  
+
   if (old_operation_mode == operation_mode)
     {
       if ((boiler_temperature < get_t_pump_on (operation_mode))
@@ -1906,7 +1906,7 @@ relay_control (void)
                 actionflags3.status_change = 1;
             }
         }
-    }   
+    }
   else /* Operation mode changed - take action after a delay.  */
     {
       if (--delay_counter == 0)
@@ -1919,19 +1919,19 @@ relay_control (void)
 }
 
 /* Process the main menu.  */
-void 
+void
 run_menu (void)
-{      
-  if (current_key == VK_MODE) 
-    { 
+{
+  if (current_key == VK_MODE)
+    {
       if (operation_mode < ABSENT_MODE)
         operation_mode++;
-      else 
-        operation_mode = 0; 
-      
+      else
+        operation_mode = 0;
+
       actionflags.menu= 1;
     }
-  else if (current_key == VK_MENU) 
+  else if (current_key == VK_MENU)
     {
       /* Instead of showing the menu we now directly switch to the
          status menu.  */
@@ -1939,15 +1939,15 @@ run_menu (void)
       actionflags.menu= 1;
       actionflags2.reset_status_menu= 1;
     }
-  
+
   switch (current_submenu)
     {
     case 0: status_menu (); break;
     case 1: timer_menu ();  break;
     case 2: shift_menu (); break;
     case 3: temperature_menu (); break;
-    case 4: pump_menu (); break;             
-    case 5: history_menu(); break;   
+    case 4: pump_menu (); break;
+    case 5: history_menu(); break;
     default: select_menu (); break;
     }
 }
@@ -1960,7 +1960,7 @@ init_eeprom (void)
   unsigned char i;
   unsigned int aword = 0;
   unsigned char abyte = 0;
- 
+
   if (eeprom_read_byte (&e2_init_marker) == E2_INIT_MARKER_OKAY)
     return;
 
@@ -1971,7 +1971,7 @@ init_eeprom (void)
     {
       delay_ms (15);
       switch (i % 4)
-        { 
+        {
         case 0:
           aword = MK_TIME (7,00);
           abyte = DAY_MODE;
@@ -1989,22 +1989,22 @@ init_eeprom (void)
           abyte = NIGHT_MODE;
           lcd_putc ('.');
           break;
-        }   
-      
+        }
+
       if ((i%32) < 4)
         aword |= WORKDAY;
       else if ((i%32)<12)
         aword += (((i%32-4)/4)+5) * 1440;
-      else     
+      else
         {
           aword += (((i%32-12)/4)) * 1440;
           abyte = DEACTIVATED_MODE;
         }
-      
+
       put_timer_time (i, aword);
       put_timer_mode (i, abyte);
     }
-      
+
   eeprom_update_word (&ee_t_curve_low[DAY_MODE], -100);
   eeprom_update_word (&ee_t_boiler_max[DAY_MODE], 750);
   eeprom_update_word (&ee_t_curve_high[DAY_MODE], 180);
@@ -2021,24 +2021,24 @@ init_eeprom (void)
   eeprom_update_word (&ee_t_boiler_min[ABSENT_MODE], 350);
   eeprom_update_word (&ee_t_curve_low[ABSENT_MODE], -150);
   eeprom_update_word (&ee_t_curve_high[ABSENT_MODE], 200);
-  eeprom_update_word (&ee_t_pump_on[ABSENT_MODE], 440);          
-    
-  put_shift_offset (0);   
-    
+  eeprom_update_word (&ee_t_pump_on[ABSENT_MODE], 440);
+
+  put_shift_offset (0);
+
   for(i = 0 ; i < MAX_LOGGING ;i++)
     {
       /* Fixme:  Replace using a block fucntion. */
-      eeprom_update_byte (&ee_consumption_buffer[i], 0xFF);   
+      eeprom_update_byte (&ee_consumption_buffer[i], 0xFF);
       eeprom_update_byte (&ee_temperature_buffer[i], 0xFF);
     }
-  put_history_index (0);    
-    
+  put_history_index (0);
+
   eeprom_write_byte (&e2_init_marker, E2_INIT_MARKER_OKAY);
 }
 
 
 /* Store the oil/gas/pellets consumption in a history file.  */
-void 
+void
 store_consumption (void)
 {
   uint8_t idx = get_history_index ();
@@ -2049,7 +2049,7 @@ store_consumption (void)
   burner_time = 0;
   total_time = 0;
   if (++idx >= MAX_LOGGING)
-    idx = 0; 
+    idx = 0;
   put_history_index (idx);
 }
 
@@ -2124,7 +2124,7 @@ do_atcommand (void)
       else
         return 1;
     }
-  else 
+  else
     return 1;
   return 0; /* Okay.  */
 }
@@ -2139,7 +2139,7 @@ main (void)
   operation_mode = DAY_MODE;
   actionflags.menu = 1;
 
-  /* Port A: Pins 0..7 to input. 
+  /* Port A: Pins 0..7 to input.
      PINA.7 = KEY-1
      PINA.6 = KEY-2
      PINA.5 = KEY-3
@@ -2165,7 +2165,7 @@ main (void)
   PORTB = 0x00;
   DDRB  = 0x1f;
 
-  /* Port C: Pins 0..7 to input. 
+  /* Port C: Pins 0..7 to input.
      PINC.7 = LCD_DATA3_PIN
      PINC.6 = LCD_DATA2_PIN
      PINC.5 = LCD_DATA1_PIN
@@ -2179,12 +2179,12 @@ main (void)
   DDRC  = 0x00;
 
   /* Port D: Pins 0..7 to input.
-     PIND.7 = 
-     PIND.6 = 
-     PIND.5 = 
-     PIND.4 = 
-     PIND.3 = 
-     PIND.2 = IR (SFH506, pin3) 
+     PIND.7 =
+     PIND.6 =
+     PIND.5 =
+     PIND.4 =
+     PIND.3 =
+     PIND.2 = IR (SFH506, pin3)
      PIND.1 = TXD
      PIND.0 = RXD
   */
@@ -2227,9 +2227,9 @@ main (void)
    * OC2 output: disconnected.
    */
   ASSR  = 0x00;
-  TCCR2 = 0x0c;
-  TCNT2 = 0x00;
-  OCR2  = 124;     /*  1ms  */
+  TCCR2 = 0x0c;    /* Set precaler to clk/64, select CTC mode.  */
+  TCNT2 = 0x00;    /* Clear timer/counter register.  */
+  OCR2  = 124;     /* Compare value for 1ms.  */
 
   /* Init external interrupts.  */
   /* GICR  |= 0x40;  /\* Enable Int0.  *\/ */
@@ -2283,7 +2283,7 @@ main (void)
 
   init_eeprom ();
 
-  read_t_sensors (1); 
+  read_t_sensors (1);
 
   /* Enable interrupts.  */
   sei ();
@@ -2293,7 +2293,7 @@ main (void)
   /* Main loop.  */
   for (;;)
    {
-     static unsigned char tmp_mode;      
+     static unsigned char tmp_mode;
 
      while (!actionflags.run_main)
        {
@@ -2311,21 +2311,21 @@ main (void)
      actionflags.run_main = 0;
 
      tmp_mode = get_operation_mode (current_time);
-     if (tmp_mode != DEACTIVATED_MODE) 
+     if (tmp_mode != DEACTIVATED_MODE)
        operation_mode = tmp_mode;
-           
+
      run_menu ();
-     read_t_sensors (0); 
+     read_t_sensors (0);
      get_controlpoint ();
      relay_control ();
-     poll_keyboard ();              
-     
+     poll_keyboard ();
+
      switch_lit_relay (lit_timer);
      switch_night_led (operation_mode == NIGHT_MODE);
      switch_absent_led (operation_mode == ABSENT_MODE);
-     
-     if (actionflags.day) 
-       { 
+
+     if (actionflags.day)
+       {
          store_consumption ();
          actionflags.day = 0;
        }
@@ -2371,52 +2371,52 @@ main (void)
          uart_putc (':');
          uart_putc (':');
          uart_putc (':');
-         uart_int (total_time, 0, 0); 
+         uart_int (total_time, 0, 0);
          uart_putc (':');
-         uart_int (burner_time, 0, 0); 
+         uart_int (burner_time, 0, 0);
          do_colon_linefeed ();
 
          if (actionflags2.send_data)
-           {                          
+           {
              actionflags2.send_data = 0;
-             
+
              uart_putc ('t');
              uart_putc (':');
-             uart_int (boiler_temperature_target, 0, 0); 
+             uart_int (boiler_temperature_target, 0, 0);
              uart_putc (':');
              uart_int (boiler_temperature, 0, 0);
              uart_putc (':');
-             uart_int (outside_temperature, 0, 0); 
+             uart_int (outside_temperature, 0, 0);
              uart_putc (':');
              uart_putc (':');
              uart_putc (':');
-             uart_int (real_temperature[0], 0, 0); 
+             uart_int (real_temperature[0], 0, 0);
              uart_putc (':');
-             uart_int (real_temperature[1], 0, 0); 
+             uart_int (real_temperature[1], 0, 0);
              do_colon_linefeed ();
 
            }
 
          if (actionflags2.send_hist)
-           {                          
+           {
              uint8_t tmpidx;
              uint8_t consumption;
-             
+
              actionflags2.send_hist = 0;
-             
+
              uart_putc ('h');
              do_colon_linefeed ();
 
              tmpidx = get_history_index () - 1;
              while (tmpidx != get_history_index ())
                {
-                 if (tmpidx >= MAX_LOGGING) 
+                 if (tmpidx >= MAX_LOGGING)
                    tmpidx = MAX_LOGGING-1;
                  if (tmpidx == get_history_index ())
                    break;
-                 
+
                  consumption = get_consumption (tmpidx);
-                 if (consumption <= 100) 
+                 if (consumption <= 100)
                    {
                      uart_putc ('h');
                      uart_putc (':');
@@ -2427,8 +2427,8 @@ main (void)
                      uart_int (get_temperature (tmpidx), 0, 0);
                      do_colon_linefeed ();
                    }
-                 tmpidx--; 
-               } 
+                 tmpidx--;
+               }
            }
 
          if (actionflags2.send_conf)
