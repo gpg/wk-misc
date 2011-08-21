@@ -1,10 +1,22 @@
 /* ebusnode1.c - Elektor Bus Node using an ATmega88
-   Copyright (C) 2011 g10 Code GmbH
-
-
-   2011-06-01 wk  Initial code.
-
-  */
+ * Copyright (C) 2011 g10 Code GmbH
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * 2011-06-01 wk  Initial code.
+ *
+ */
 
 
 /* Clock frequency in Hz. */
@@ -23,8 +35,8 @@
 #define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
 
 /* Key and LED definitions.  */
-#define KEY_Test    bit_is_set (PIND, PIND5)
-#define KEY_Exp     bit_is_set (PIND, PIND7)
+#define KEY_S2    bit_is_set (PIND, PIND5)
+#define KEY_S3    bit_is_set (PIND, PIND7)
 #define LED_Collision     (PORTD)
 #define LED_Collision_BIT (4)
 #define LED_Tx            (PORTD)
@@ -40,7 +52,10 @@
 # error computed baud rate out of range
 #endif
 
-/* We use timer 0 to detect the sync and error gaps during receive.
+/* Fixme: The table below is still from the modbus variant; we need to
+   to use better timing values.
+
+   We use timer 0 to detect the sync and error gaps during receive.
    As with MODBus specs the sync gap T_g needs to be 3.5c and the
    error gap T_e (gaps between bytes in a message longer than that are
    considered an error) is 1.5c.  With 8n1 an octet is represented by
@@ -93,15 +108,36 @@
 
 /* We always work on 16 byte long messages.  */
 #define MSGSIZE 16
-/* The start byte which indicates the start of a new message.  */
-#define MSGSTARTBYTE 0xaa
+/* The sync byte which indicates the start of a new message.  If this
+   byte is used inside the message it needs to be escaped and ORed
+   with the escape mask.  This ensures that a sync byte will always be
+   the start of a new frame.  Note that this is similar to the PPP
+   (rfc-1662) framing format.  */
+#define FRAMESYNCBYTE 0x7e
+#define FRAMEESCBYTE  0x7d
+#define FRAMEESCMASK  0x20
 
+/* The protocol id describes the format of the payload; ie. the actual
+   message.  It is used instead of the 0xaa byte of the original (May
+   2011) ElektorBus protocol.  Defined values:
+
+   0x00            RFU
+   0x01 ... 0x3f   Assigned values
+   0x40            RFU
+   0x41 ... 0x4f   Experimental protocols.
+   0x50            RFU
+   0x51 ... 0x77   RFU
+   0x78 ... 0x7f   Not used to help the framing layer.
+   0x80 ... 0xff   RFU (bit 7 may be used as an urgent option).
+
+ */
+#define PROTOCOL_ID   0x41
 
 /* Typedefs.  */
 typedef unsigned char byte;
 
 /* EEPROM layout.  We keep configuration data at the start of the
-   eeprom but copy it on startup into the RAM for easier access. */
+   eeprom but copy it on startup into the RAM for easier access.  */
 struct
 {
   uint16_t  reserved;
@@ -112,7 +148,7 @@ struct
 
 /* End EEPROM.  */
 
-/* For fast access we copy some of the config data int the RAM.  */
+/* For fast access we copy some of the config data into the RAM.  */
 struct
 {
   byte nodeid_lo;
@@ -123,7 +159,13 @@ volatile unsigned int current_time;
 
 volatile unsigned int frames_sent;
 volatile unsigned int frames_received;
-volatile unsigned int resyncs_done;
+volatile unsigned int collision_count;
+volatile unsigned int overflow_count;
+
+/* A counter for the number of received octets.  Roll-over is by
+   design okay because it is only used to detect silence on the
+   channel.  */
+volatile byte octets_received;
 
 
 
@@ -133,8 +175,13 @@ volatile char wakeup_main;
 /* The buffer filled by an ISR with the message.  */
 static volatile byte rx_buffer[MSGSIZE];
 
-/* Flag indicating whether we are currently receiving a message.  */
-static volatile byte receiving;
+/* The buffer with the currently sent message.  We need to store it to
+   send retries.  It is also used by the receiver to detect collisions.  */
+static volatile byte tx_buffer[MSGSIZE];
+
+/* Flag set if we do not want to receive but check out own sending for
+   collisions.  */
+static volatile byte check_sending;
 
 /* If true RX_BUFFER has a new message.  This flag is set by the ISR
    and must be cleared by the main fucntion so that the ISR can
@@ -143,14 +190,14 @@ static volatile byte rx_ready;
 
 static volatile byte send_flag;
 
-static volatile byte send_interval;
+static volatile unsigned short send_interval;
 
 
 
 /* Reset the gap timer (timer 0).  Note that this resets both
    timers.  */
 static void
-reset_gap_timer (void)
+reset_retry_timer (void)
 {
   TCCR0B = 0x00;   /* Stop clock.  */
   TIFR0  = _BV(OCF0A) | _BV(OCF0B);  /* Clear the flags.  */
@@ -166,16 +213,61 @@ reset_gap_timer (void)
 
 
 static inline int
-t_g_reached (void)
+t_g_reached_p (void)
 {
   return !!(TIFR0 & _BV(OCF0A));
 }
 
 
 static inline int
-t_e_reached (void)
+t_e_reached_p (void)
 {
   return !!(TIFR0 & _BV(OCF0B));
+}
+
+
+static void
+wait_t_e_reached (void)
+{
+  set_sleep_mode (SLEEP_MODE_IDLE);
+  while (!t_e_reached_p ())
+    {
+      cli();
+      if (!t_e_reached_p ())
+        {
+          sleep_enable ();
+          sei ();
+          sleep_cpu ();
+          sleep_disable ();
+        }
+      sei ();
+    }
+}
+
+
+/* Read key S2.  Return true once at the first debounced leading edge
+   of the depressed key.  For correct operation this function needs to
+   be called at fixed intervals. */
+static byte
+read_key_s2 (void)
+{
+  static uint16_t state;
+
+  state <<= 1;
+  state |= !KEY_S2;
+  state |= 0xf800; /* To work on 10 continuous depressed readings.  */
+  return (state == 0xfc00); /* Only the transition shall return true.  */
+}
+
+static byte
+read_key_s3 (void)
+{
+  static uint16_t state;
+
+  state <<= 1;
+  state |= !KEY_S3;
+  state |= 0xf800; /* To work on 10 continuous depressed readings.  */
+  return (state == 0xfc00); /* Only the transition shall return true.  */
 }
 
 
@@ -194,17 +286,46 @@ ISR (TIMER2_COMPA_vect)
   clock++;
 
   if (clock == 1000)
-   {
-     /* One second has passed.  Bump the current time.  */
-     current_time++;
-     clock = 0;
-   }
+    {
+      /* One second has passed.  Bump the current time.  */
+      current_time++;
+      clock = 0;
+    }
 
-  /* Run the main loop every 250ms.  */
+  /* Run the main loop every N ms.  */
   if (!(clock % send_interval))
     {
       send_flag = 1;
       wakeup_main = 1;
+    }
+
+  /* Poll the keyboard every 10ms.  */
+  /* if (!(clock % 10)) */
+    {
+      if (read_key_s2 ())
+        {
+          switch (send_interval)
+            {
+            case 500: send_interval = 1000; break;
+            case 250: send_interval =  500; break;
+            case 125: send_interval =  250; break;
+            case 100: send_interval =  125; break;
+            case  50: send_interval =  100; break;
+            case  25: send_interval =   50; break;
+            }
+        }
+      if (read_key_s3 ())
+        {
+          switch (send_interval)
+            {
+            case 1000: send_interval = 500; break;
+            case  500: send_interval = 250; break;
+            case  250: send_interval = 125; break;
+            case  125: send_interval = 100; break;
+            case  100: send_interval =  50; break;
+            case   50: send_interval =  25; break;
+            }
+        }
     }
 
 }
@@ -222,65 +343,105 @@ ISR (USART_TX_vect)
    This is useful so that we can easily detect collisions.  */
 ISR (USART_RX_vect)
 {
+  static byte receiving;
   static byte idx;
+  static byte escape;
   byte c;
-
-  if (!receiving)
-    {
-      if (!t_g_reached ())
-        return;  /* Still waiting for the sync gap.  */
-
-      receiving = 1;
-      idx = 0;
-      reset_gap_timer ();
-    }
 
   c = UDR0;
 
-  if (rx_ready) /* Overflow.  */
-    goto resync;
+  octets_received++;
 
-  if (t_e_reached ()) /* Gap between octets in message too long.  */
-    goto resync;
-  reset_gap_timer ();
-
-  if (idx == 0 && c != MSGSTARTBYTE)
+  if (c == FRAMESYNCBYTE)
     {
-      /* We are out of sync.  This might be due to a collission or
-         because we started to listen too late.  What we need to do is
-         to wait for the next sync gap.  */
-      goto resync;
+      if (receiving)
+        {
+          /* Received sync byte while receiving - either a collision
+             or the message was too short and the next frame started.  */
+          LED_Collision |= _BV(LED_Collision_BIT);
+          receiving = 0;
+          collision_count++;
+          if (check_sending)
+            check_sending = 2;
+        }
+      else
+        {
+          receiving = 1;
+          idx = escape = 0;
+        }
     }
-  if (idx >= MSGSIZE)
+  else if (!receiving)
+    ; /* No sync seen, thus skip this octet.  */
+  else if (rx_ready && !check_sending)
     {
-      /* Message too long.  This is probably due to a collission.  */
-      goto resync;
-    }
-  rx_buffer[idx++] = c;
-  if (idx == MSGSIZE)
-    {
-      rx_ready = 1;
-      wakeup_main = 1;
+      /* Overflow.  The previous message has not yet been processed.  */
       receiving = 0;
-      frames_received++;
-      reset_gap_timer ();
+      overflow_count++;
     }
-  return;
-
- resync:
-  /* Collision or overflow.  */
-  resyncs_done++;
-  LED_Collision |= _BV(LED_Collision_BIT);
-  receiving = 0;
-  reset_gap_timer ();
-  return;
+  else if (idx >= MSGSIZE)
+    {
+      /* Message too long.  This is probably due to a collision.  */
+      LED_Collision |= _BV(LED_Collision_BIT);
+      receiving = 0;
+      collision_count++;
+      if (check_sending)
+        check_sending = 2;
+    }
+  else if (c == FRAMEESCBYTE && !escape)
+    escape = 1;
+  else
+    {
+      if (escape)
+        {
+          escape = 0;
+          c ^= FRAMEESCMASK;
+        }
+      if (check_sending)
+        {
+          if (tx_buffer[idx++] != c)
+            {
+              LED_Collision |= _BV(LED_Collision_BIT);
+              receiving = 0;
+              collision_count++;
+              check_sending = 2;  /* Tell the tx code about the collision.  */
+              idx = 0;
+            }
+          if (idx == MSGSIZE && check_sending == 1)
+            {
+              check_sending = 0; /* All checked. */
+              receiving = 0;
+            }
+        }
+      else if (idx == 0 && c != PROTOCOL_ID)
+        {
+          /* Protocol mismatch - ignore this message.  */
+          /* Switch a lit collision LED off. */
+          LED_Collision &= ~_BV(LED_Collision_BIT);
+          /* Prepare for the next frame.  */
+          receiving = 0;
+        }
+      else
+        {
+          rx_buffer[idx++] = c;
+          if (idx == MSGSIZE)
+            {
+              frames_received++;
+              /* Switch a lit collision LED off. */
+              LED_Collision &= ~_BV(LED_Collision_BIT);
+              /* Tell the mainloop that tehre is something to process.  */
+              rx_ready = 1;
+              wakeup_main = 1;
+              /* Prepare for the next frame.  */
+              receiving = 0;
+            }
+        }
+    }
 }
 
 
-
-/* Send out byte C.  */
+/* Send out the raw byte C.  */
 static void
-send_byte (const byte c)
+send_byte_raw (const byte c)
 {
   /* Wait until transmit buffer is empty.  */
   while (!bit_is_set (UCSR0A, UDRE0))
@@ -290,66 +451,170 @@ send_byte (const byte c)
 }
 
 
+/* Send byte C with byte stuffing.  */
+static void
+send_byte (const byte c)
+{
+  if (c == FRAMESYNCBYTE || c == FRAMEESCBYTE)
+    {
+      send_byte_raw (FRAMEESCBYTE);
+      send_byte_raw ((c ^ FRAMEESCMASK));
+    }
+  else
+    send_byte_raw (c);
+}
 
+
+static int
+bus_idle_p (void)
+{
+  byte last_count;
+
+  last_count = octets_received;
+  reset_retry_timer ();
+  wait_t_e_reached ();
+
+  return last_count == octets_received;
+}
+
+
+static void
+wait_bus_idle (void)
+{
+  while (!bus_idle_p ())
+    ;
+}
+
+
+/* Send a message.  This function does the framing and and retries
+   until the message has been sent.  */
 static void
 send_message (byte recp_id, const byte *data)
 {
-  /* FIXME: Out logic does only work if we receive an octet from time
-     to time.  Without that we may get stuck while having received
-     only a part of a frame and thus we will never switch out of
-     receiving.  An ISR to handle the syncing is required.  */
-  while (receiving || !t_g_reached ())
-    ;
+  byte idx;
+  byte resend = 0;
+  byte backoff = 0;
 
-  /* Switch TX LED on.  */
-  LED_Tx |= _BV(LED_Tx_BIT);
+  /* Prepare the message.  For now we ignore the supplied DATA and
+     send some stats instead.  */
+  idx = 0;
+  tx_buffer[idx++] = PROTOCOL_ID;
+  tx_buffer[idx++] = 0;  /* fixme: This is the mode byte.  */
+  tx_buffer[idx++] = config.nodeid_lo;
+  tx_buffer[idx++] = recp_id;
+  tx_buffer[idx++] = current_time >> 8;
+  tx_buffer[idx++] = current_time;
+  tx_buffer[idx++] = frames_received >> 8;
+  tx_buffer[idx++] = frames_received;
+  tx_buffer[idx++] = frames_sent >> 8;
+  tx_buffer[idx++] = frames_sent;
+  tx_buffer[idx++] = collision_count >> 8;
+  tx_buffer[idx++] = collision_count;
+  tx_buffer[idx++] = overflow_count >> 8;
+  tx_buffer[idx++] = overflow_count;
+  tx_buffer[idx++] = send_interval >> 8;
+  tx_buffer[idx++] = send_interval;
 
-  /* Before sending we need to clear the TCX bit by setting it.  */
-  UCSR0A |= _BV(TXC0);
+  do
+    {
+      if (resend)
+        {
+          int nloops;
 
-  /* Enable the LT1785 driver output (DE).  */
-  PORTD |= _BV(2);
+          /* Exponential backoff up to 64.  This is the first time we
+             randomly use one or two wait loops; the second time 1 to
+             4, the third time 1 to 8, then 1 to 16, 1 to 32 and
+             finally stick to 1 to 64. */
+          if (backoff < 5)
+            backoff++;
 
-  send_byte (MSGSTARTBYTE);
-  send_byte (config.nodeid_lo);
-  send_byte (recp_id);
-  send_byte (current_time >> 8);
-  send_byte (current_time);
-  send_byte (frames_received >> 8);
-  send_byte (frames_received);
-  send_byte (frames_sent >> 8);
-  send_byte (frames_sent);
-  send_byte (resyncs_done >> 8);
-  send_byte (resyncs_done);
-  send_byte (9);
-  send_byte (10);
-  send_byte (11);
-  send_byte (12);
-  send_byte (13);
+          do
+            {
+              wait_bus_idle ();
+              nloops = (rand () % (1 << backoff)) + 1;
 
-  /* Wait until transmit is complete.  */
-  while (!bit_is_set (UCSR0A, TXC0))
-    ;
-  UCSR0A |= _BV(TXC0);
+              while (nloops--)
+                {
+                  reset_retry_timer ();
+                  wait_t_e_reached ();
+                }
+            }
+          while (!bus_idle_p ());
 
-  /* Now disable the LT1785 driver output (DE).  */
-  PORTD &= ~_BV(2);
+          /* Switch a lit collision LED off.  We do this here to give
+             a feedback on the used delay.  */
+          LED_Collision &= ~_BV(LED_Collision_BIT);
 
-  /* To introduce the 3.5c gap we now continue sending dummy bytes
-     with DE disabled.  That allows us to do it without a timer with
-     the little disadvantage that the gap will be 4c.  However that is
-     allowed by the MODbus protocol from where we took this sync
-     feature.  */
-  UCSR0A |= _BV(TXC0);
-  send_byte (0xe0);
-  send_byte (0xe1);
-  send_byte (0xe2);
-  send_byte (0xe3);
-  while (!bit_is_set (UCSR0A, TXC0))
-    ;
-  UCSR0A |= _BV(TXC0);
+          resend = 0;
+        }
+      else
+        wait_bus_idle ();
 
-  LED_Tx &= ~_BV(LED_Tx_BIT); /* Switch TX LED off.  */
+      check_sending = 1;
+
+      /* Switch TX LED on.  */
+      LED_Tx |= _BV(LED_Tx_BIT);
+
+      /* Before sending we need to clear the TCX bit by setting it.  */
+      UCSR0A |= _BV(TXC0);
+
+      /* Enable the LT1785 driver output (DE).  */
+      PORTD |= _BV(2);
+
+      send_byte_raw (FRAMESYNCBYTE);
+      for (idx=0; idx < MSGSIZE; idx++)
+        {
+          send_byte (tx_buffer[idx]);
+          if (check_sending == 2)
+            {
+              /* Collision detected - stop sending as soon as possible.  */
+              resend++;
+              break;
+            }
+        }
+
+      /* Wait until transmit is complete.  */
+      while (!bit_is_set (UCSR0A, TXC0))
+        ;
+      UCSR0A |= _BV(TXC0);
+
+      /* Wait until the receiver received and checked all our octets.  */
+      if (check_sending == 1)
+        {
+          reset_retry_timer ();
+          while (check_sending == 1)
+            {
+              set_sleep_mode (SLEEP_MODE_IDLE);
+              cli();
+              if (t_g_reached_p ())
+                check_sending = 2; /* Receiver got stuck.  */
+              else if (check_sending == 1)
+                {
+                  sleep_enable ();
+                  sei ();
+                  sleep_cpu ();
+                  sleep_disable ();
+                }
+              sei ();
+            }
+        }
+      if (check_sending == 2)
+        resend++;
+
+      check_sending = 0;
+
+      /* Now disable the LT1785 driver output (DE).  */
+      PORTD &= ~_BV(2);
+
+      /* Switch TX LED off.  */
+      LED_Tx &= ~_BV(LED_Tx_BIT);
+
+    }
+  while (resend);
+
+  /* Switch a lit collision LED off. */
+  LED_Collision &= ~_BV(LED_Collision_BIT);
+
   frames_sent++;
 }
 
@@ -375,9 +640,9 @@ int
 main (void)
 {
   /* Port D configuration:
-     PIND.7 = Inp: KEY_Exp
+     PIND.7 = Inp: KEY_S3
      PIND.6 = Out: LED_Exp
-     PIND.5 = Inp: KEY_Test
+     PIND.5 = Inp: KEY_S2
      PIND.4 = Out: LED_Collision
      PIND.3 = Out: LT1785-pin2 = !RE
      PIND.2 = Out: LT1785-pin3 = DE
@@ -420,6 +685,12 @@ main (void)
   /* Copy some configuration data into the RAM.  */
   config.nodeid_lo = eeprom_read_byte (&ee_config.nodeid_lo);
 
+  /* Lacking any better way to see rand we use the node id.  A better
+     way would be to use the low bit of an ADC to gather some entropy.
+     However the node id is supposed to be unique and should thus be
+     sufficient.  */
+  srand (config.nodeid_lo);
+
   send_interval = 250;
 
   /* Enable interrupts.  */
@@ -427,44 +698,37 @@ main (void)
 
   /* Main loop.  */
   for (;;)
-   {
-     while (!wakeup_main)
-       {
-         set_sleep_mode (SLEEP_MODE_IDLE);
-         cli();
-         if (!wakeup_main)
-           {
-             sleep_enable ();
-             sei ();
-             sleep_cpu ();
-             sleep_disable ();
-           }
-         sei ();
-       }
-     wakeup_main = 0;
+    {
+      set_sleep_mode (SLEEP_MODE_IDLE);
+      while (!wakeup_main)
+        {
+          cli();
+          if (!wakeup_main)
+            {
+              sleep_enable ();
+              sei ();
+              sleep_cpu ();
+              sleep_disable ();
+            }
+          sei ();
+        }
+      wakeup_main = 0;
 
-     if (rx_ready)
-       {
-         /* Reset the collission LED on the first correctly received
-            message.  */
-         LED_Collision &= ~_BV(LED_Collision_BIT);
-         /* Process the message.  */
-         process_message ();
-         /* Re-enable the receiver.  */
-         rx_ready = 0;
-       }
+      if (rx_ready)
+        {
+          /* Process the message.  */
+          process_message ();
+          /* Re-enable the receiver.  */
+          rx_ready = 0;
+        }
 
-     if (send_flag)
-       {
-         send_message (0, NULL);
-         send_flag = 0;
-       }
+      if (send_flag)
+        {
+          send_message (0, NULL);
+          send_flag = 0;
+        }
 
-     if (KEY_Test)
-       send_interval = 125;
-     if (KEY_Exp)
-       send_interval = 250;
-   }
+    }
 }
 
 
