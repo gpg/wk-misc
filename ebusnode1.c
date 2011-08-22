@@ -15,9 +15,42 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * 2011-06-01 wk  Initial code.
- *
+ * 2011-08-22 wk  Changed to a CSMA/CD protocol
  */
 
+/* Build instructions are at the end of this file.  Please make sure
+   to set the FUSE bits correctly and assign a different node-id to
+   each node by storing them in the EEPROM.
+
+   The tool ebusdump.c may be used on a Unix hosts to display the
+   stats.  Assuming the RS-485 converter is attached to /dev/ttyUSB1
+   you would do this:
+
+     stty </dev/ttyUSB1 speed 9600 raw
+     ./ebusdump </dev/ttyUSB1 --top
+
+   Instead of of showing the stats page, ebusdump may also be used to
+   dump the activity by usingit without the --top option.
+
+   This code sends status information to allow analyzing the bus
+   behaviour under load.  The keys S2 and S3 are used to change the
+   send interval of those messages in discrete steps.  With 9600 baud
+   you will notice many collisions in particular if the interval has
+   been set down to 25 by pressing the S3 button 4 times; the interval
+   is shown in the ebusdump output.
+
+   In contrast to the original Elektor Bus protocol, this version uses
+   implements a CSMA/CD protocol with an explicit framing similar to
+   PPP (RFC-1662).  The original 0xAA byte has been replaced by a
+   protocol ID to allow the use of several protocols on the same bus.
+
+   Future work:
+   - Detect collisions more reliable by adding a CRC to the framing.
+   - Use correct timings.
+   - Add a framework to register actual applications.
+   - Use a simple send queue to allow receiving urgent data.
+
+*/
 
 /* Clock frequency in Hz. */
 #define F_CPU 16000000UL
@@ -735,6 +768,8 @@ main (void)
 /*
 Writing:
  avrdude -c usbasp -pm88 -U flash:w:ebusnode1.hex
+Initializing the EEPROM (e.g. node-id 42):
+ avrdude -c usbasp -pm88 -U eeprom:w:0,0,0,42:m
 Fuse bits:
  lfuse = 0xFF (16MHz crystal)
  hfuse = 0xD7 (ie. set EESAVE))
