@@ -171,7 +171,7 @@ main (int argc, char **argv )
                 }
               else if (idx < 30)
                 {
-                  if (idx < 16)
+                  if (idx && idx < 16)
                     putchar (' ');
                   else if (idx == 16)
                     printf ("  trash: ");

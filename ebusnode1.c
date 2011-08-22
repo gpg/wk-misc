@@ -42,10 +42,21 @@
    In contrast to the original Elektor Bus protocol, this version uses
    implements a CSMA/CD protocol with an explicit framing similar to
    PPP (RFC-1662).  The original 0xAA byte has been replaced by a
-   protocol ID to allow the use of several protocols on the same bus.
+   protocol ID to allow the use of several protocols on the same bus:
+
+    +-----------+--------+---------------------+---------+----------+
+    |SYNC(0x7e) | PROTID | PAYLOAD (15 octets) | CRC(msb)| CRC(lsb) |
+    +-----------+--------+---------------------+---------+----------+
+
+   Except for the SYNC byte all other octets are byte stuffed and
+   masked so that the sync byte value always indicates the start of a
+   frame.  The CRC is computed over PROTID and PAYLOAD after
+   de-stuffing.  In contrast to PPP we don't need a trailing flag to
+   indicate the end of the frame because we use a fixed length
+   payload.  The CRC uses the polynom x^16+x^12+x^5+1 and an initial
+   value of 0xfff (CRC-CCID).  The CRC is sent network byte order.
 
    Future work:
-   - Detect collisions more reliable by adding a CRC to the framing.
    - Use correct timings.
    - Add a framework to register actual applications.
    - Use a simple send queue to allow receiving urgent data.
@@ -63,6 +74,7 @@
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 #include <avr/sleep.h>
+#include <util/crc16.h>
 
 
 #define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
@@ -211,6 +223,7 @@ static volatile byte rx_buffer[MSGSIZE];
 /* The buffer with the currently sent message.  We need to store it to
    send retries.  It is also used by the receiver to detect collisions.  */
 static volatile byte tx_buffer[MSGSIZE];
+static volatile uint16_t tx_buffer_crc;
 
 /* Flag set if we do not want to receive but check out own sending for
    collisions.  */
@@ -224,6 +237,9 @@ static volatile byte rx_ready;
 static volatile byte send_flag;
 
 static volatile unsigned short send_interval;
+
+static void
+send_byte (const byte c);
 
 
 
@@ -304,6 +320,21 @@ read_key_s3 (void)
 }
 
 
+/* Compute the CRC for MSG.  MSG must be of MSGSIZE.  The CRC used is
+   possible not the optimal CRC for our message length.  However we
+   have a convenient inline function for it.  */
+static uint16_t
+compute_crc (const volatile byte *msg)
+{
+  int idx;
+  uint16_t crc = 0xffff;
+
+  for (idx=0; idx < MSGSIZE; idx++)
+    crc = _crc_ccitt_update (crc, msg[idx]);
+
+  return crc;
+}
+
 
 
 /*
@@ -326,31 +357,39 @@ ISR (TIMER2_COMPA_vect)
     }
 
   /* Run the main loop every N ms.  */
-  if (!(clock % send_interval))
+  if (send_interval && !(clock % send_interval))
     {
       send_flag = 1;
       wakeup_main = 1;
     }
 
-  /* Poll the keyboard every 10ms.  */
+  /* Poll the keyboard every 1ms.  */
   /* if (!(clock % 10)) */
     {
       if (read_key_s2 ())
         {
           switch (send_interval)
             {
-            case 500: send_interval = 1000; break;
-            case 250: send_interval =  500; break;
-            case 125: send_interval =  250; break;
-            case 100: send_interval =  125; break;
-            case  50: send_interval =  100; break;
-            case  25: send_interval =   50; break;
+            case 1000:
+              /* Disable sending but send one more frame to show the
+                 new sending interval.  */
+              send_interval = 0;
+              send_flag = 1;
+              wakeup_main = 1;
+              break;
+            case  500: send_interval = 1000; break;
+            case  250: send_interval =  500; break;
+            case  125: send_interval =  250; break;
+            case  100: send_interval =  125; break;
+            case   50: send_interval =  100; break;
+            case   25: send_interval =   50; break;
             }
         }
       if (read_key_s3 ())
         {
           switch (send_interval)
             {
+            case 0:    send_interval = 1000; break;
             case 1000: send_interval = 500; break;
             case  500: send_interval = 250; break;
             case  250: send_interval = 125; break;
@@ -359,6 +398,7 @@ ISR (TIMER2_COMPA_vect)
             case   50: send_interval =  25; break;
             }
         }
+
     }
 
 }
@@ -379,6 +419,7 @@ ISR (USART_RX_vect)
   static byte receiving;
   static byte idx;
   static byte escape;
+  static uint16_t crc;
   byte c;
 
   c = UDR0;
@@ -411,15 +452,6 @@ ISR (USART_RX_vect)
       receiving = 0;
       overflow_count++;
     }
-  else if (idx >= MSGSIZE)
-    {
-      /* Message too long.  This is probably due to a collision.  */
-      LED_Collision |= _BV(LED_Collision_BIT);
-      receiving = 0;
-      collision_count++;
-      if (check_sending)
-        check_sending = 2;
-    }
   else if (c == FRAMEESCBYTE && !escape)
     escape = 1;
   else
@@ -429,20 +461,41 @@ ISR (USART_RX_vect)
           escape = 0;
           c ^= FRAMEESCMASK;
         }
+
       if (check_sending)
         {
-          if (tx_buffer[idx++] != c)
+          if (idx < MSGSIZE)
             {
-              LED_Collision |= _BV(LED_Collision_BIT);
-              receiving = 0;
-              collision_count++;
-              check_sending = 2;  /* Tell the tx code about the collision.  */
-              idx = 0;
+              if (tx_buffer[idx++] != c)
+                {
+                  LED_Collision |= _BV(LED_Collision_BIT);
+                  receiving = 0;
+                  collision_count++;
+                  check_sending = 2;  /* Tell the tx code.  */
+                  idx = 0;
+                }
             }
-          if (idx == MSGSIZE && check_sending == 1)
+          else if (idx == MSGSIZE)
             {
-              check_sending = 0; /* All checked. */
-              receiving = 0;
+              crc = c << 8;
+              idx++;
+            }
+          else /* idx == MSGSIZE + 1 */
+            {
+              crc |= c;
+              if (crc != tx_buffer_crc)
+                {
+                  LED_Collision |= _BV(LED_Collision_BIT);
+                  receiving = 0;
+                  collision_count++;
+                  check_sending = 2;  /* Tell the tx code.  */
+                  idx = 0;
+                }
+              else if (check_sending == 1)
+                {
+                  check_sending = 0; /* All checked. */
+                  receiving = 0;
+                }
             }
         }
       else if (idx == 0 && c != PROTOCOL_ID)
@@ -453,10 +506,24 @@ ISR (USART_RX_vect)
           /* Prepare for the next frame.  */
           receiving = 0;
         }
-      else
+      else if (idx < MSGSIZE)
+        rx_buffer[idx++] = c;
+      else if (idx == MSGSIZE)
         {
-          rx_buffer[idx++] = c;
-          if (idx == MSGSIZE)
+          crc = c << 8;
+          idx++;
+        }
+      else /* idx == MSGSIZE + 1 */
+        {
+          crc |= c;
+          if (crc != compute_crc (rx_buffer))
+            {
+              LED_Collision |= _BV(LED_Collision_BIT);
+              collision_count++;
+              if (check_sending)
+                check_sending = 2;
+            }
+          else
             {
               frames_received++;
               /* Switch a lit collision LED off. */
@@ -464,9 +531,9 @@ ISR (USART_RX_vect)
               /* Tell the mainloop that tehre is something to process.  */
               rx_ready = 1;
               wakeup_main = 1;
-              /* Prepare for the next frame.  */
-              receiving = 0;
             }
+          /* Prepare for the next frame.  */
+          receiving = 0;
         }
     }
 }
@@ -548,6 +615,8 @@ send_message (byte recp_id, const byte *data)
   tx_buffer[idx++] = send_interval >> 8;
   tx_buffer[idx++] = send_interval;
 
+  tx_buffer_crc = compute_crc (tx_buffer);
+
   do
     {
       if (resend)
@@ -604,6 +673,12 @@ send_message (byte recp_id, const byte *data)
               resend++;
               break;
             }
+        }
+
+      if (!resend)
+        {
+          send_byte ((tx_buffer_crc >> 8));
+          send_byte (tx_buffer_crc);
         }
 
       /* Wait until transmit is complete.  */
@@ -724,7 +799,7 @@ main (void)
      sufficient.  */
   srand (config.nodeid_lo);
 
-  send_interval = 250;
+  send_interval = 1000;
 
   /* Enable interrupts.  */
   sei ();
