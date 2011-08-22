@@ -54,7 +54,7 @@
    de-stuffing.  In contrast to PPP we don't need a trailing flag to
    indicate the end of the frame because we use a fixed length
    payload.  The CRC uses the polynom x^16+x^12+x^5+1 and an initial
-   value of 0xfff (CRC-CCID).  The CRC is sent network byte order.
+   value of 0xffff (CRC-CCID).  The CRC is sent in network byte order.
 
    Future work:
    - Use correct timings.
@@ -154,7 +154,7 @@
 /* We always work on 16 byte long messages.  */
 #define MSGSIZE 16
 /* The sync byte which indicates the start of a new message.  If this
-   byte is used inside the message it needs to be escaped and ORed
+   byte is used inside the message it needs to be escaped and XORed
    with the escape mask.  This ensures that a sync byte will always be
    the start of a new frame.  Note that this is similar to the PPP
    (rfc-1662) framing format.  */
