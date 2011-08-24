@@ -87,7 +87,6 @@
 #define LED_Tx            (PORTD)
 #define LED_Tx_BIT        (6)
 
-
 /* UART defs.  */
 #define BAUD       9600ul
 #define UBRR_VAL   ((F_CPU+8*BAUD)/(16*BAUD)-1)
@@ -97,49 +96,38 @@
 # error computed baud rate out of range
 #endif
 
-/* Fixme: The table below is still from the modbus variant; we need to
-   to use better timing values.
+/* We use timer 0 to measure the time for one octet.  With 8n1 an
+   octet is represented by 10 bits on the wire which takes the time
+   Tc.
 
-   We use timer 0 to detect the sync and error gaps during receive.
-   As with MODBus specs the sync gap T_g needs to be 3.5c and the
-   error gap T_e (gaps between bytes in a message longer than that are
-   considered an error) is 1.5c.  With 8n1 an octet is represented by
-   10 bits on the wire and it takes the time Tc.
-
-   |   Baud |    Tc |    Tg |    Te |    Tg |    Te |   Tg |   Te |
-   |        |  (ms) |  (ms) |  (ms) | c/256 | c/256 | c/64 | c/64 |
-   |--------+-------+-------+-------+-------+-------+------+------|
-   |   9600 |  1.04 |  3.65 |  1.56 |   228 |    97 |      |      |
-   |  19200 |  0.52 |  1.82 |  0.78 |   114 |    48 |      |      |
-   |  38400 |  0.26 |  0.91 |  0.39 |       |       |  228 |   97 |
-   |  57600 |  0.17 |  0.61 |  0.26 |       |       |  153 |   65 |
-   |  76800 |  0.13 |  0.46 |  0.20 |       |       |  115 |   50 |
-   | 115200 | 0.087 | 0.304 | 0.130 |       |       |   76 |   32 |
+   |   Baud |    Tc |    Tc |   Tc |
+   |        |  (ms) | c/256 | c/64 |
+   |--------+-------+-------+------|
+   |   9600 |  1.04 |    65 |      |
+   |  19200 |  0.52 |    33 |      |
+   |  38400 |  0.26 |       |   65 |
+   |  57600 |  0.17 |       |   43 |
+   |  76800 |  0.13 |       |   33 |
+   | 115200 | 0.087 |       |   22 |
 */
 #if BAUD == 9600
 # define T_x_PSCALE 256
-# define T_g_CMPVAL 228
-# define T_e_CMPVAL  97
+# define T_c_CMPVAL  65
 #elif BAUD == 19200
 # define T_x_PSCALE 256
-# define T_g_CMPVAL 114
-# define T_e_CMPVAL  48
+# define T_c_CMPVAL  33
 #elif BAUD == 38400
 # define T_x_PSCALE  64
-# define T_g_CMPVAL 228
-# define T_e_CMPVAL  97
+# define T_c_CMPVAL  65
 #elif BAUD == 57600
 # define T_x_PSCALE  64
-# define T_g_CMPVAL 153
-# define T_e_CMPVAL  65
+# define T_c_CMPVAL  43
 #elif BAUD == 76800
 # define T_x_PSCALE  64
-# define T_g_CMPVAL 115
-# define T_e_CMPVAL  50
+# define T_c_CMPVAL  33
 #elif BAUD == 115200
 # define T_x_PSCALE  64
-# define T_g_CMPVAL  76
-# define T_e_CMPVAL  32
+# define T_c_CMPVAL  22
 #else
 # error Specified baud rate not supported
 #endif
@@ -207,12 +195,8 @@ volatile unsigned int frames_received;
 volatile unsigned int collision_count;
 volatile unsigned int overflow_count;
 
-/* A counter for the number of received octets.  Roll-over is by
-   design okay because it is only used to detect silence on the
-   channel.  */
-volatile byte octets_received;
-
-
+/* Flag indicating that a PCINT2 was triggered.  */
+volatile byte rx_pin_level_change;
 
 /* Set to one (e.g. the timer int) to wakeup the main loop.  */
 volatile char wakeup_main;
@@ -238,9 +222,6 @@ static volatile byte send_flag;
 
 static volatile unsigned short send_interval;
 
-static void
-send_byte (const byte c);
-
 
 
 /* Reset the gap timer (timer 0).  Note that this resets both
@@ -262,27 +243,20 @@ reset_retry_timer (void)
 
 
 static inline int
-t_g_reached_p (void)
+t_c_reached_p (void)
 {
   return !!(TIFR0 & _BV(OCF0A));
 }
 
 
-static inline int
-t_e_reached_p (void)
-{
-  return !!(TIFR0 & _BV(OCF0B));
-}
-
-
 static void
-wait_t_e_reached (void)
+wait_t_c_reached (void)
 {
   set_sleep_mode (SLEEP_MODE_IDLE);
-  while (!t_e_reached_p ())
+  while (!t_c_reached_p ())
     {
       cli();
-      if (!t_e_reached_p ())
+      if (!t_c_reached_p ())
         {
           sleep_enable ();
           sei ();
@@ -424,8 +398,6 @@ ISR (USART_RX_vect)
 
   c = UDR0;
 
-  octets_received++;
-
   if (c == FRAMESYNCBYTE)
     {
       if (receiving)
@@ -539,6 +511,15 @@ ISR (USART_RX_vect)
 }
 
 
+/* Pin Change Interrupt Request 2 handler.  */
+ISR (PCINT2_vect)
+{
+  rx_pin_level_change = 1;
+  reset_retry_timer ();
+  rx_pin_level_change = 0;
+}
+
+
 /* Send out the raw byte C.  */
 static void
 send_byte_raw (const byte c)
@@ -568,13 +549,19 @@ send_byte (const byte c)
 static int
 bus_idle_p (void)
 {
-  byte last_count;
+  rx_pin_level_change = 0;
 
-  last_count = octets_received;
   reset_retry_timer ();
-  wait_t_e_reached ();
 
-  return last_count == octets_received;
+  PCMSK2  = _BV(PCINT16);  /* We only want to use this pin.  */
+  PCICR  |= _BV(PCIE2);
+
+  wait_t_c_reached ();
+
+  PCMSK2 &= ~_BV(PCINT16);
+  PCICR  &= ~_BV(PCIE2);
+
+  return !rx_pin_level_change;
 }
 
 
@@ -638,7 +625,7 @@ send_message (byte recp_id, const byte *data)
               while (nloops--)
                 {
                   reset_retry_timer ();
-                  wait_t_e_reached ();
+                  wait_t_c_reached ();
                 }
             }
           while (!bus_idle_p ());
@@ -694,17 +681,27 @@ send_message (byte recp_id, const byte *data)
          to do that as soon as possible.  */
       PORTD &= ~_BV(2);
 
-
       /* Wait until the receiver received and checked all our octets.  */
       if (check_sending == 1)
         {
+          byte tccount = 0;
+
           reset_retry_timer ();
           while (check_sending == 1)
             {
               set_sleep_mode (SLEEP_MODE_IDLE);
               cli();
-              if (t_g_reached_p ())
-                check_sending = 2; /* Receiver got stuck.  */
+              if (t_c_reached_p ())
+                {
+                  if (++tccount > 3)
+                    {
+                      /* Nothing received for 4*Tc - assume receiver
+                         is clogged due to collisions.  */
+                      check_sending = 2;
+                    }
+                  else
+                    reset_retry_timer ();
+                }
               else if (check_sending == 1)
                 {
                   sleep_enable ();
@@ -774,8 +771,8 @@ main (void)
   UBRR0H = (UBRR_VAL >> 8) & 0x0f;
   UBRR0L = (UBRR_VAL & 0xff);
 
-  /* Timer 0: We use this timer for the sync gap and error gap
-     detection during receive.  */
+  /* Timer 0: We use this timer to measure the time for one octet on
+     the wire.  */
   TCCR0A = 0x00;   /* Select normal mode.  */
 #if T_x_PSCALE == 256
   TCCR0B = 0x04;   /* Set prescaler to clk/256.  */
@@ -784,8 +781,8 @@ main (void)
 #endif
   TIMSK0 = 0x00;   /* No interrupts so that we need to clear the TIFR0
                       flags ourself.  */
-  OCR0A  = T_g_CMPVAL; /* Use this for T_g.  */
-  OCR0B  = T_e_CMPVAL; /* Use this for T_e.  */
+  OCR0A  = T_c_CMPVAL; /* Use this for Tc.  */
+  OCR0B  = 0;
 
   /* Timer 1:  Not used.  */
 
@@ -799,7 +796,7 @@ main (void)
   /* Copy some configuration data into the RAM.  */
   config.nodeid_lo = eeprom_read_byte (&ee_config.nodeid_lo);
 
-  /* Lacking any better way to see rand we use the node id.  A better
+  /* Lacking any better way to seed rand we use the node id.  A better
      way would be to use the low bit of an ADC to gather some entropy.
      However the node id is supposed to be unique and should thus be
      sufficient.  */
