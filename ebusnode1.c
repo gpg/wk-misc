@@ -57,7 +57,6 @@
    value of 0xffff (CRC-CCID).  The CRC is sent in network byte order.
 
    Future work:
-   - Use correct timings.
    - Add a framework to register actual applications.
    - Use a simple send queue to allow receiving urgent data.
 
@@ -175,9 +174,6 @@
    | 0x30 ... 0x37 | Experimental protocols |                       |
    | 0x38 ... 0x3e | RFU                    |                       |
    | 0x3f          | Not used               |                       |
-
-   10101010
-
  */
 #define PROTOCOL_MSGLEN_MASK  0xc0
 #define PROTOCOL_TYPE_MASK    0x3f
@@ -631,17 +627,17 @@ send_message (byte recp_id, const byte *data)
         {
           int nloops;
 
-          /* Exponential backoff up to 64.  This is the first time we
-             randomly use one or two wait loops; the second time 1 to
-             4, the third time 1 to 8, then 1 to 16, 1 to 32 and
-             finally stick to 1 to 64. */
-          if (backoff < 5)
+          /* Exponential backoff up to 32.  For the first two resents
+             we randomly use one or two wait loops; the 3rd and 4th
+             time 1 to 4, then 1 to 8, then 1 to 16 and finally stick
+             to 1 to 32. */
+          if (backoff < 8)
             backoff++;
 
           do
             {
               wait_bus_idle ();
-              nloops = (rand () % (1 << backoff)) + 1;
+              nloops = (rand () % (1 << backoff/2)) + 1;
 
               while (nloops--)
                 {
