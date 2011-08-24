@@ -657,7 +657,7 @@ send_message (byte recp_id, const byte *data)
       /* Switch TX LED on.  */
       LED_Tx |= _BV(LED_Tx_BIT);
 
-      /* Before sending we need to clear the TCX bit by setting it.  */
+      /* Before sending we need to clear the TXC bit by setting it.  */
       UCSR0A |= _BV(TXC0);
 
       /* Enable the LT1785 driver output (DE).  */
@@ -669,7 +669,11 @@ send_message (byte recp_id, const byte *data)
           send_byte (tx_buffer[idx]);
           if (check_sending == 2)
             {
-              /* Collision detected - stop sending as soon as possible.  */
+              /* Collision detected - stop sending as soon as
+                 possible.  We even disable the driver output right
+                 now so that we won't clobber the bus any further with
+                 data in the tx queue.  */
+              PORTD &= ~_BV(2);  /* Disable LT1785 driver output.  */
               resend++;
               break;
             }
@@ -685,6 +689,11 @@ send_message (byte recp_id, const byte *data)
       while (!bit_is_set (UCSR0A, TXC0))
         ;
       UCSR0A |= _BV(TXC0);
+
+      /* Now disable the LT1785 driver output (DE).  It is important
+         to do that as soon as possible.  */
+      PORTD &= ~_BV(2);
+
 
       /* Wait until the receiver received and checked all our octets.  */
       if (check_sending == 1)
@@ -710,9 +719,6 @@ send_message (byte recp_id, const byte *data)
         resend++;
 
       check_sending = 0;
-
-      /* Now disable the LT1785 driver output (DE).  */
-      PORTD &= ~_BV(2);
 
       /* Switch TX LED off.  */
       LED_Tx &= ~_BV(LED_Tx_BIT);

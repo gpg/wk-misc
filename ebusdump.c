@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <stdint.h>
 
 /* Valid nodes we want to print in --top mode.  */
 #define FIRST_NODE_ID 1
@@ -34,6 +35,31 @@ control_c_handler (int signo)
   ctrl_c_pending = 1;
 }
 
+static uint16_t
+crc_ccitt_update (uint16_t crc, uint8_t data)
+{
+  data ^= (crc & 0xff);
+  data ^= data << 4;
+
+  return ((((uint16_t)data << 8) | ((crc >> 8)& 0xff)) ^ (uint8_t)(data >> 4)
+          ^ ((uint16_t)data << 3));
+}
+
+/* Compute the CRC for MSG.  MSG must be of MSGSIZE.  The CRC used is
+   possible not the optimal CRC for our message length.  However we
+   have a convenient inline function for it.  */
+static uint16_t
+compute_crc (const unsigned char *msg)
+{
+  int idx;
+  uint16_t crc = 0xffff;
+
+  for (idx=0; idx < 16; idx++)
+    crc = crc_ccitt_update (crc, msg[idx]);
+
+  return crc;
+}
+
 
 int
 main (int argc, char **argv )
@@ -46,7 +72,7 @@ main (int argc, char **argv )
   int synced;
   int idx;
   unsigned int value;
-  unsigned char buffer[5];
+  unsigned char buffer[18];
 
   if (argc)
     {
@@ -81,7 +107,7 @@ main (int argc, char **argv )
       fflush (stdout);
     }
 
-  any = esc = synced = 0;
+  any = esc = synced = idx = 0;
   while ( (c=getchar ()) != EOF && !ctrl_c_pending)
     {
       if (c == 0x7e && any)
@@ -114,16 +140,18 @@ main (int argc, char **argv )
                   esc = 0;
                   c ^= 0x20;
                 }
+
+              if (idx < sizeof (buffer))
+                buffer[idx] = c;
+
               if (topmode && !idx && c != 0x41)
                 {
                   printf ("\x1b[1;1H" "[bad_protocol] %02x", c);
                   synced = 0;
                   any = 1;
                 }
-              else if (topmode && idx < 2)
-                {
-                  buffer[idx] = c;
-                }
+              else if (idx < 2)
+                ; /* Printed later.  */
               else if (topmode && idx == 2)
                 {
                   if (c >= FIRST_NODE_ID && c <= LAST_NODE_ID)
@@ -132,7 +160,7 @@ main (int argc, char **argv )
                     printf ("\x1b[1;1H[bad node-id]\x1b[K ");
                   printf ("%02x", buffer[0]);
                   printf (" %02x", buffer[1]);
-                  printf (" %02x", c);
+                  printf (" %02x", buffer[2]);
                   any = 1;
                 }
               else if (topmode && idx > 3 && idx < 16)
@@ -174,8 +202,18 @@ main (int argc, char **argv )
                   if (idx && idx < 16)
                     putchar (' ');
                   else if (idx == 16)
-                    printf ("  trash: ");
+                    printf (" crc: ");
+                  else if (idx == 18)
+                    printf (" trash: ");
                   printf ("%02x", c);
+                  if (idx == 17)
+                    {
+                      unsigned int crc = compute_crc (buffer);
+                      if ((crc >> 8) == buffer[16] && (crc&0xff) == buffer[17])
+                        printf (" ok ");
+                      else
+                        printf (" bad");
+                    }
                   any = 1;
                 }
               else if (idx == 30)
