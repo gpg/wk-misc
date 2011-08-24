@@ -73,6 +73,7 @@ main (int argc, char **argv )
   int idx;
   unsigned int value;
   unsigned char buffer[18];
+  unsigned int protocol;
 
   if (argc)
     {
@@ -144,15 +145,18 @@ main (int argc, char **argv )
               if (idx < sizeof (buffer))
                 buffer[idx] = c;
 
-              if (topmode && !idx && c != 0x41)
+              if (!idx)
+                protocol = (c & 0x3f);
+
+              if (topmode && !idx && (c & 0xc0) != 0x80)
                 {
-                  printf ("\x1b[1;1H" "[bad_protocol] %02x", c);
+                  printf ("\x1b[1;1H" "[bad protocol_msglen] %02x", c);
                   synced = 0;
                   any = 1;
                 }
-              else if (idx < 2)
+              else if (idx < 2 && protocol == 0x31)
                 ; /* Printed later.  */
-              else if (topmode && idx == 2)
+              else if (topmode && idx == 2 && protocol == 0x31)
                 {
                   if (c >= FIRST_NODE_ID && c <= LAST_NODE_ID)
                     printf ("\x1b[%d;1H", c+1 );
@@ -163,7 +167,7 @@ main (int argc, char **argv )
                   printf (" %02x", buffer[2]);
                   any = 1;
                 }
-              else if (topmode && idx > 3 && idx < 16)
+              else if (topmode && idx > 3 && idx < 16 && protocol == 0x31)
                 {
                   switch (idx)
                     {
@@ -201,12 +205,12 @@ main (int argc, char **argv )
                 {
                   if (idx && idx < 16)
                     putchar (' ');
-                  else if (idx == 16)
+                  else if (idx == 16 && protocol == 0x31)
                     printf (" crc: ");
-                  else if (idx == 18)
+                  else if (idx == 18 && protocol == 0x31)
                     printf (" trash: ");
                   printf ("%02x", c);
-                  if (idx == 17)
+                  if (idx == 17 && protocol == 0x31)
                     {
                       unsigned int crc = compute_crc (buffer);
                       if ((crc >> 8) == buffer[16] && (crc&0xff) == buffer[17])

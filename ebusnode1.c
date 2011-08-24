@@ -154,17 +154,38 @@
    message.  It is used instead of the 0xaa byte of the original (May
    2011) ElektorBus protocol.  Defined values:
 
-   0x00            RFU
-   0x01 ... 0x3f   Assigned values
-   0x40            RFU
-   0x41 ... 0x4f   Experimental protocols.
-   0x50            RFU
-   0x51 ... 0x77   RFU
-   0x78 ... 0x7f   Not used to help the framing layer.
-   0x80 ... 0xff   RFU (bit 7 may be used as an urgent option).
+   | Bit 7 .. 6 | Bit 5 .. 0   |
+   |------------+--------------|
+   | Msglen     | ProtocolType |
+   |------------+--------------|
+
+   | Msglen | Description          |
+   |--------+----------------------|
+   |      0 | 48 byte + 2 byte CRC |
+   |      1 | 32 byte + 2 byte CRC |
+   |      2 | 16 byte + 2 byte CRC |
+   |      3 | RFU                  |
+   |        |                      |
+
+   | ProtocolType  | Description            | Allowed Protocoltypes |
+   |---------------+------------------------+-----------------------|
+   | 0x00          | Not used               | -                     |
+   | 0x01 ... 0x2f | Assigned values        |                       |
+   | 0x2a          | ElektorBus Application | 0                     |
+   | 0x30 ... 0x37 | Experimental protocols |                       |
+   | 0x38 ... 0x3e | RFU                    |                       |
+   | 0x3f          | Not used               |                       |
+
+   10101010
 
  */
-#define PROTOCOL_ID   0x41
+#define PROTOCOL_MSGLEN_MASK  0xc0
+#define PROTOCOL_TYPE_MASK    0x3f
+#define PROTOCOL_MSGLEN_48    0x00
+#define PROTOCOL_MSGLEN_32    0x40
+#define PROTOCOL_MSGLEN_16    0x80
+
+#define PROTOCOL_EBUS_TEST  (PROTOCOL_MSGLEN_16 | 0x31)
 
 /* Typedefs.  */
 typedef unsigned char byte;
@@ -470,9 +491,9 @@ ISR (USART_RX_vect)
                 }
             }
         }
-      else if (idx == 0 && c != PROTOCOL_ID)
+      else if (idx == 0 && (c & PROTOCOL_MSGLEN_MASK) != PROTOCOL_MSGLEN_16)
         {
-          /* Protocol mismatch - ignore this message.  */
+          /* Protocol length mismatch - ignore this message.  */
           /* Switch a lit collision LED off. */
           LED_Collision &= ~_BV(LED_Collision_BIT);
           /* Prepare for the next frame.  */
@@ -585,8 +606,8 @@ send_message (byte recp_id, const byte *data)
   /* Prepare the message.  For now we ignore the supplied DATA and
      send some stats instead.  */
   idx = 0;
-  tx_buffer[idx++] = PROTOCOL_ID;
-  tx_buffer[idx++] = 0;  /* fixme: This is the mode byte.  */
+  tx_buffer[idx++] = PROTOCOL_EBUS_TEST;
+  tx_buffer[idx++] = 0;
   tx_buffer[idx++] = config.nodeid_lo;
   tx_buffer[idx++] = recp_id;
   tx_buffer[idx++] = current_time >> 8;
@@ -735,7 +756,7 @@ send_message (byte recp_id, const byte *data)
    quickly and see what to do.  We need to return as soon as possible,
    so that the caller may re-enable the receiver.  */
 static void
-process_message (void)
+process_ebus_test (void)
 {
   /* Is this a broadcast or is it directed to us.  If not we don't
      need to care about it.  */
@@ -828,7 +849,15 @@ main (void)
       if (rx_ready)
         {
           /* Process the message.  */
-          process_message ();
+          switch ((rx_buffer[0] & PROTOCOL_TYPE_MASK))
+            {
+            case PROTOCOL_EBUS_TEST:
+              process_ebus_test ();
+              break;
+            default:
+              /* Ignore all other protocols.  */
+              break;
+            }
           /* Re-enable the receiver.  */
           rx_ready = 0;
         }
