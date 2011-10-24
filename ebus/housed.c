@@ -266,36 +266,6 @@ logmsg_time (unsigned int value, unsigned int decile)
 }
 
 
-/* Return the current ebus time for broadcasting.  The time is defined
-   as number of 10 second periods passed since Monday 0:00.  */
-static unsigned int
-mk_ebus_time (unsigned int *r_decile, unsigned int *r_dst)
-{
-  struct tm *tp;
-  time_t atime = time (NULL);
-  unsigned int result;
-
-  /* Get the local time and convert it to a Monday...Sunday week.  */
-  /* Fixme: We can't return fractions of a second.  Need to use
-     clock_gettime or wait for the full second.  */
-  tp = localtime (&atime);
-  if (!tp->tm_wday)
-    tp->tm_wday = 6;
-  else
-    tp->tm_wday--;
-
-  result = (tp->tm_wday * 24 * 60 * 6
-            + tp->tm_hour * 60 * 6
-            + tp->tm_min * 6 + tp->tm_sec/10);
-  if (r_decile)
-    *r_decile = (tp->tm_sec % 10) * 10;
-  if (r_dst)
-    *r_dst = !!tp->tm_isdst;
-  return result;
-}
-
-
-
 
 
 /* Process test messages.  */
@@ -341,6 +311,14 @@ p_busctl_time (byte *msg, size_t msglen, int have_decile)
 }
 
 
+static void
+p_busctl_version (byte *msg, size_t msglen)
+{
+  logmsg_fmt ("nodetype=%u rev=\"%.7s\"%s", msg[6], msg+8,
+              (msg[7] || msg[15])? "[reserved octets are not 0]":"");
+}
+
+
 /* Process busctl messages.  */
 static void
 process_ebus_busctl (byte *msg, size_t msglen)
@@ -364,6 +342,12 @@ process_ebus_busctl (byte *msg, size_t msglen)
       logmsg_fmt ("%s:QueryTime", is_response?"Rsp":"Cmd");
       if (is_response)
         p_busctl_time (msg, msglen, 1);
+      break;
+
+    case P_BUSCTL_QRY_VERSION:
+      logmsg_fmt ("%s:QueryVersion", is_response?"Rsp":"Cmd");
+      if (is_response)
+        p_busctl_version (msg, msglen);
       break;
 
     default:
@@ -415,6 +399,16 @@ p_h61_shutter_rsp (byte *msg, size_t msglen)
 {
   switch (msg[6])
     {
+    case P_H61_SHUTTER_QUERY:
+      logmsg_fmt ("QryState: err=%d state=%02x",
+                  msg[7], msg[8]);
+      if ((msg[8] & 0xc0) == 0xc0)
+        logmsg_fmt (" upwards");
+      if ((msg[8] & 0xc0) == 0x80)
+        logmsg_fmt (" downwards");
+      if ((msg[8] & 0x20))
+        logmsg_fmt (" %d%% closed", (msg[8] & 0x0f)*100/15);
+      break;
     case P_H61_SHUTTER_QRY_SCHEDULE:
       logmsg_fmt ("QrySchedule(%u): %u[%u] action 0x%02x ",
                   msg[7], msg[10], msg[9], msg[13]);
@@ -550,179 +544,6 @@ process (FILE *fp)
     }
 }
 
-/* Send out the raw byte C.  */
-static void
-send_byte_raw (FILE *fp, byte c)
-{
-  putc (c, fp);
-}
-
-
-/* Send byte C with byte stuffing.  */
-static void
-send_byte (FILE *fp, byte c)
-{
-  if (c == FRAMESYNCBYTE || c == FRAMEESCBYTE)
-    {
-      send_byte_raw (fp, FRAMEESCBYTE);
-      send_byte_raw (fp, (c ^ FRAMEESCMASK));
-    }
-  else
-    send_byte_raw (fp, c);
-}
-
-static void
-footest_1 (FILE *fp)
-{
-  byte msg[16];
-  unsigned int crc;
-  int idx;
-
-  msg[0] = PROTOCOL_EBUS_BUSCTL;
-  msg[1] = 0xff;
-  msg[2] = 0xff;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
-  msg[5] = P_BUSCTL_QRY_TIME;
-  memset (msg+6, 0, 10);
-  crc = compute_crc (msg, 16);
-
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
-}
-
-static void
-footest_2 (FILE *fp)
-{
-  byte msg[16];
-  unsigned int crc;
-  int idx;
-
-  msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
-  msg[5] = P_H61_SHUTTER;
-  msg[6] = P_H61_SHUTTER_QRY_SCHEDULE;
-  msg[7] = 1;
-  memset (msg+8, 0, 8);
-  crc = compute_crc (msg, 16);
-
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
-}
-
-static void
-footest_3 (FILE *fp)
-{
-  byte msg[16];
-  unsigned int crc;
-  int idx;
-  unsigned int tim, dec, dst;
-
-  tim = mk_ebus_time (&dec, &dst);
-  msg[0] = PROTOCOL_EBUS_BUSCTL;
-  msg[1] = 0xff;
-  msg[2] = 0xff;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
-  msg[5] = P_BUSCTL_TIME;
-  msg[6] = 0x03;  /* Decile given, exact time */
-  if (dst)
-    msg[6] |= 0x04;
-  msg[7] = tim >> 8;
-  msg[8] = tim;
-  msg[9] = dec;
-  memset (msg+10, 0, 6);
-  crc = compute_crc (msg, 16);
-
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
-}
-
-
-static void
-footest_4 (FILE *fp)
-{
-  byte msg[16];
-  unsigned int crc;
-  int idx;
-  unsigned char   item = 2;
-  unsigned int     tim = 3 * 60 * 6;
-  unsigned char action = 0x80;
-
-  msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
-  msg[5] = P_H61_SHUTTER;
-  msg[6] = P_H61_SHUTTER_UPD_SCHEDULE;
-  msg[7] = 0;
-  msg[8] = 0;
-  msg[9] = 1;
-  msg[10] = item;
-  msg[11] = tim >> 8;
-  msg[12] = tim;
-  msg[13] = action;
-  msg[14] = 0;
-  msg[15] = 0;
-  crc = compute_crc (msg, 16);
-
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
-}
-
-
-static void
-send_reset_shutter_eeprom (FILE *fp)
-{
-  byte msg[16];
-  unsigned int crc;
-  int idx;
-
-  msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
-  msg[5] = P_H61_SHUTTER;
-  msg[6] = P_H61_SHUTTER_UPD_SCHEDULE;
-  msg[7] = 0xf0;
-  msg[8] = 0;
-  msg[9] = 16;
-  msg[10] = 0xf0;
-  msg[11] = 0xf0;
-  msg[12] = 0xf0;
-  msg[13] = 0xf0;
-  msg[14] = 0;
-  msg[15] = 0;
-  crc = compute_crc (msg, 16);
-
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
-}
 
 
 static int
@@ -744,7 +565,6 @@ int
 main (int argc, char **argv )
 {
   int last_argc = -1;
-  int testmode = 0;
   FILE *fp;
 
   if (argc)
@@ -787,15 +607,6 @@ main (int argc, char **argv )
           verbose = debug = 1;
           argc--; argv++;
         }
-      else if (!strcmp (*argv, "--test"))
-        {
-          argc--; argv++;
-          if (argc)
-            {
-              testmode = atoi (*argv);
-              argc--; argv++;
-            }
-        }
       else if (!strncmp (*argv, "--", 2))
         show_usage (1);
     }
@@ -806,15 +617,7 @@ main (int argc, char **argv )
   setvbuf (stdout, NULL, _IOLBF, 0);
 
   fp = open_line (*argv);
-  switch (testmode)
-    {
-    case 1: footest_1 (fp); break;
-    case 2: footest_2 (fp); break;
-    case 3: footest_3 (fp); break;
-    case 4: footest_4 (fp); break;
-    case 5: send_reset_shutter_eeprom (fp); break;
-    default: process (fp); break;
-    }
+  process (fp);
   fclose (fp);
 
   return any_error? 1:0;

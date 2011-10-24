@@ -216,7 +216,6 @@ ticker_bottom (unsigned int clock)
           /*                  | !~~!- Value: 0 = 0% closed
            *                  +------ State in bits 3..0 is valid.  */
           goto label_pre_off;
-          break;
 
         case motor_state_pre_down:
           MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
@@ -235,12 +234,12 @@ ticker_bottom (unsigned int clock)
            *                +-------- Motor running.        */
           action_delay = 25000; /*ms*/
           state = motor_state_down_ready;
+          break;
         case motor_state_down_ready:
           shutter_state = 0b00101111;
           /*                  | !~~!--- Value: 15 = 100% closed
            *                  +-------- State in bits 3..0 is valid.  */
           goto label_pre_off;
-          break;
         }
     }
 
@@ -538,6 +537,19 @@ process_ebus_busctl (byte *msg)
       msg[8] = val16;
       msg[9] = val8;
       memset (msg+10, 0, 6);
+      csma_send_message (msg, MSGSIZE);
+      break;
+
+    case P_BUSCTL_QRY_VERSION:
+      msg[1] = msg[3];
+      msg[2] = msg[4];
+      msg[3] = config.nodeid_hi;
+      msg[4] = config.nodeid_lo;
+      msg[5] |= P_BUSCTL_RESPMASK;
+      msg[6] = eeprom_read_byte (&ee_data.nodetype);
+      msg[7] = 0;
+      memcpy_P (msg+8, PSTR (GIT_REVISION), 7);
+      msg[15] = 0;
       csma_send_message (msg, MSGSIZE);
       break;
 
