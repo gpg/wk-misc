@@ -215,9 +215,6 @@ volatile unsigned int overflow_count;
 /* Flag indicating that a PCINT2 was triggered.  */
 volatile byte rx_pin_level_change;
 
-/* Set to one (e.g. the timer int) to wakeup the main loop.  */
-volatile char wakeup_main;
-
 /* The buffer filled by an ISR with the message.  */
 static volatile byte rx_buffer[MSGSIZE];
 

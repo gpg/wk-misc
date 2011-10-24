@@ -176,7 +176,11 @@ main (int argc, char **argv )
                       break;
                     case 5:
                       value |= c;
-                      printf (" t:%6u", value);
+                      printf (" t:%ud%02uh%02um%02us",
+                              (value/6/60/24),
+                              (value/6/60 % 24),
+                              (value/6 % 60),
+                              (value % 6) * 10);
                       break;
                     case 7:
                       value |= c;
