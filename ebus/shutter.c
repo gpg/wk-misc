@@ -281,7 +281,7 @@ ticker_bottom (unsigned int clock)
    FORCED_TLOW is not 0 the scheduler will run the last action between
    FORCED_TLOW and TIME regardless on whether it has already been run.
    This feature is required to cope with a changed system time:
-   Consider the shutter shall be called at 19:00, the current system
+   Consider the shutter shall be closed at 19:00, the current system
    time is 18:59 and the system time is updated to 19:10 - without
    that feature the closing at 19:00 would get lost.  */
 static void

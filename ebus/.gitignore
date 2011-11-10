@@ -1,0 +1,8 @@
+revision.h
+housed
+housectl
+*.hex
+*.elf
+*.o
+
+ebusdump

@@ -27,11 +27,13 @@ HOSTCFLAGS = -Wall -Wno-pointer-sign -g -O2
 sources = ebus.h hardware.c hardware.h protocol.h csma.c \
 	  ebusdump.c testnode.c shutter.c proto-busctl.h proto-h61.h \
 	  proto-dbgmsg.h onewire.c i2c.c i2c-lcd.c \
-	  housed.c housectl.c
+	  housed.c housectl.c hsd-misc.h hsd-time.c hsd-time.h
 
 all: housed housectl testnode.hex shutter.hex doorbell.hex
 
 common_node_obj = hardware.o csma.o onewire.o
+
+common_hsd_obj = hsd-time.o
 
 .PHONY: FORCE
 
@@ -62,6 +64,9 @@ onewire.o: hardware.h ebus.h
 i2c.o: hardware.h ebus.h
 i2c-lcd.o: hardware.h ebus.h
 
+hsd-time.o: hsd-time.h hsd-misc.h
+ebusctl.o: hsd-time.h hsd-misc.h
+
 testnode.elf : testnode.o $(common_node_obj)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
@@ -79,5 +84,5 @@ doorbell.elf : doorbell.o $(common_node_obj) i2c.o i2c-lcd.o
 housed : housed.c protocol.h proto-busctl.h proto-h61.h
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ housed.c
 
-housectl : housectl.c protocol.h proto-busctl.h proto-h61.h
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ housectl.c
+housectl : housectl.c protocol.h proto-busctl.h proto-h61.h $(common_hsd_obj)
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ housectl.c $(common_hsd_obj)

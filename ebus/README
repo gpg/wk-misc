@@ -1,0 +1,75 @@
+Running an CSMA/CD protocol on the Elektor Bus.              -*- org -*-
+
+* Installation instructions
+
+  Just run "make" to build the code.  To write the flash you use this:
+
+     avrdude -c usbasp -pm88 -U flash:w:PROGRAM.hex
+
+  Please make sure to set the FUSE bits correctly:
+
+     lfuse = 0xFF (16MHz crystal)
+     hfuse = 0xD7 (ie. set EESAVE))
+
+  you may do this by using these commands:
+
+    avrdude -c usbasp -pm88 -v -B 4 -U lfuse:w:0xFF:m
+    avrdude -c usbasp -pm88 -v -B 4 -U hfuse:w:0xD7:m
+
+  You also need to assign an different node-id to each node in the
+  same collision domain by storing them in the EEPROM.  Due to
+  restriction of RS485 protocol more than 32 nodes are not possible
+  with most modern drivers.  Do allow for easier switching we suggest
+  to use only nodes ids in the range 1..30.  If more buses will
+  eventually be attached the high bits may be used to identify the
+  bus.  Such a simple scheme allows easy routing between buses by
+  direct mapping of the node ids.
+
+  For example, setting the node-id 17 (0x11) may be done with:
+
+    avrdude -c usbasp -pm88 -U eeprom:w:0,0,0,17:m
+
+* Helper tools
+
+  The tool ebusdump.c may be used on a Unix hosts to display the
+  stats.  Assuming the RS-485 converter is attached to /dev/ttyUSB1
+  you would do this:
+
+    stty </dev/ttyUSB1 speed 9600 raw
+    ./ebusdump </dev/ttyUSB1 --top
+
+  Instead of of showing the stats page, ebusdump may also be used to
+  dump the activity by usingit without the --top option.
+
+  This code sends status information to allow analyzing the bus
+  behaviour under load.  The keys S2 and S3 are used to change the
+  send interval of those messages in discrete steps.  With 9600 baud
+  you will notice many collisions in particular if the interval has
+  been set down to 25 by pressing the S3 button 4 times; the interval
+  is shown in the ebusdump output.
+
+* The protocol
+
+  In contrast to the original Elektor Bus protocol, this version uses
+  implements a CSMA/CD protocol with an explicit framing similar to
+  PPP (RFC-1662).  The original 0xAA byte has been replaced by a
+  protocol ID to allow the use of several protocols on the same bus:
+
+    +-----------+--------+---------------------+---------+----------+
+    |SYNC(0x7e) | PROTID | PAYLOAD (15 octets) | CRC(msb)| CRC(lsb) |
+    +-----------+--------+---------------------+---------+----------+
+
+  Except for the SYNC byte all other octets are byte stuffed and
+  masked so that the sync byte value always indicates the start of a
+  frame.  The CRC is computed over PROTID and PAYLOAD after
+  de-stuffing.  In contrast to PPP we don't need a trailing flag to
+  indicate the end of the frame because we use a fixed length payload.
+  The CRC uses the polynom x^16+x^12+x^5+1 and an initial value of
+  0xffff (CRC-CCID).  The CRC is sent in network byte order.
+
+  For a description of the PROTID, see the file protocol.h.
+
+* Future work
+
+  - Add a framework to register actual applications.
+  - Use a simple send queue to allow receiving urgent data.

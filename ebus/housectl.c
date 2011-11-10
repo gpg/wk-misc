@@ -32,6 +32,9 @@
 #include "proto-busctl.h"
 #include "proto-h61.h"
 
+#include "hsd-misc.h"
+#include "hsd-time.h"
+
 
 #define PGM           "housectl"
 #define PGM_VERSION   "0.0"
@@ -626,6 +629,7 @@ main (int argc, char **argv )
              "query-version\n"
              "query-shutter-state\n"
              "query-shutter-schedule\n"
+             "set-shutter-schedule SLOT TIMESPEC\n"
              "reset-shutter-eeprom\n"
              "drive-shutter up|down\n"
              ,stdout);
@@ -640,6 +644,8 @@ main (int argc, char **argv )
     cmd_query_shutter_state (fp);
   else if (!strcmp (cmd, "query-shutter-schedule"))
     cmd_query_shutter_schedule (fp);
+  else if (!strcmp (cmd, "set-shutter-schedule"))
+    cmd_set_shutter_schedule (fp);
   else if (!strcmp (cmd, "reset-shutter-eeprom"))
     cmd_reset_shutter_eeprom (fp);
   else if (!strcmp (cmd, "drive-shutter"))
