@@ -159,13 +159,42 @@
    There is no response message.  It is suggested to use Query Shutter
    State to check that the settings are correct.
 
+* 0x20 := Read sensors
+
+  byte 6 - Sensor type
+
+** 0x20, 0x01 Read temperature sensors
+
+  byte 7     - Sensor group to read (0 to read all).
+  byte 8..15 - reserved (must be 0)
+
+  A sensor group consist of 4 sensors.
+
+*** Response message
+
+  byte 7     - bit 7..4 := Number of available sensor groups
+               bit 3..0 := This Sensor group (1 to 15).
+  byte 8,9   - Sensor 0
+  byte 10,11 - Sensor 1
+  byte 12,13 - Sensor 2
+  byte 14,15 - Sensor 3
+
+  The values of the temperature sensors are signed 16 bit integer
+  values returning the temperature in decigrades.  There are two
+  special values:
+    0x8000 (-32678) := No sensor found
+    0x7fff (32767)  := Error reading value.
+
+  Note that it may take some time to read the sensor, thus the client
+  should not expect that the host will answer immediately.
+
 */
 
 #include "protocol.h"
 
 #define P_H61_RESPMASK 0x80  /* The response mask for the commands.  */
 #define P_H61_SHUTTER  0x10  /* ShutterControl.  */
-#define P_H61_ADCREAD  0x21  /* Read analog sensor.  */
+#define P_H61_SENSOR   0x20  /* Read sensor.  */
 
 
 /* Subcommands of P_H61_SHUTTER.  */
@@ -175,6 +204,9 @@
 #define P_H61_SHUTTER_UPD_TIMINGS  0x03
 #define P_H61_SHUTTER_QRY_SCHEDULE 0x04
 #define P_H61_SHUTTER_UPD_SCHEDULE 0x05
+
+/* Subcommands of P_H61_SENSOR.  */
+#define P_H61_SENSOR_TEMPERATURE   0x01
 
 
 

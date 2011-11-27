@@ -42,6 +42,9 @@ struct
 /* Set to one (e.g. the timer int) to wakeup the main loop.  */
 volatile char wakeup_main;
 
+/* We need a flag indicating whether the time has been set.  */
+byte time_has_been_set;
+
 
 /*-- hardware.c --*/
 void hardware_setup (byte nodetype);

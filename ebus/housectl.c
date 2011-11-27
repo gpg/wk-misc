@@ -496,6 +496,81 @@ cmd_drive_shutter (FILE *fp, const char *subcmd)
 
 
 static void
+cmd_set_shutter_schedule (FILE *fp, char const *args)
+{
+  int slot;
+  uint16_t t;
+  char *endp;
+  byte msg[16];
+  unsigned int crc;
+  int idx;
+
+  msg[0] = PROTOCOL_EBUS_H61;
+  msg[1] = 0x10;
+  msg[2] = 0x05;
+  msg[3] = 0x01;
+  msg[4] = 0x01;
+  msg[5] = P_H61_SHUTTER;
+  msg[6] = P_H61_SHUTTER_UPD_SCHEDULE;
+  msg[7] = 0;
+  msg[8] = 0;
+  msg[9] = 1;
+
+  for (; *args && ascii_isspace (*args); args++)
+    ;
+
+  slot = strtol (args, &endp, 10);
+  if (!digitp (args) || slot < 0 || slot > 15)
+    {
+      err ("invalid slot number %d - must be 0..15", slot);
+      return;
+    }
+  args = endp;
+
+  msg[10] = slot;
+
+  if (!ascii_isspace (*args))
+    {
+      err ("time spec missing");
+      return;
+    }
+  t = timestr_to_ebustime (args, &endp);
+  if (t == INVALID_TIME)
+    {
+      err ("invalid time given - expecting WEEKDAY HH:MM");
+      return;
+    }
+  for (args = endp; *args && ascii_isspace (*args); args++)
+    ;
+
+  msg[11] = t >> 8;
+  msg[12] = t;
+
+  if (!strcmp (args, "up"))
+    msg[13] = 0xc0;
+  else if (!strcmp (args, "down"))
+    msg[13] = 0x80;
+  else if (!strcmp (args, "none"))
+    msg[13] = 0;
+  else
+    {
+      err ("invalid action given - must be \"up\", \"down\" or \"none\"");
+      return;
+    }
+
+  msg[14] = 0;
+  msg[15] = 0;
+  crc = compute_crc (msg, 16);
+  send_byte_raw (fp, FRAMESYNCBYTE);
+  for (idx=0; idx < 16; idx++)
+    send_byte (fp, msg[idx]);
+  send_byte (fp, crc >> 8);
+  send_byte (fp, crc);
+  fflush (fp);
+}
+
+
+static void
 cmd_reset_shutter_eeprom (FILE *fp)
 {
   byte msg[16];
@@ -530,6 +605,40 @@ cmd_reset_shutter_eeprom (FILE *fp)
 
 
 
+static void
+cmd_sensor_temperature (FILE *fp)
+{
+  byte msg[16];
+  unsigned int crc;
+  int idx;
+
+  msg[0] = PROTOCOL_EBUS_H61;
+  msg[1] = 0x10;
+  msg[2] = 0x05;
+  msg[3] = 0x01;
+  msg[4] = 0x01;
+  msg[5] = P_H61_SENSOR;
+  msg[6] = P_H61_SENSOR_TEMPERATURE;
+  msg[7] = 0; /* Get all.  */
+  msg[8] = 0;
+  msg[9] = 0;
+  msg[10] = 0;
+  msg[11] = 0;
+  msg[12] = 0;
+  msg[13] = 0;
+  msg[14] = 0;
+  msg[15] = 0;
+  crc = compute_crc (msg, 16);
+
+  send_byte_raw (fp, FRAMESYNCBYTE);
+  for (idx=0; idx < 16; idx++)
+    send_byte (fp, msg[idx]);
+  send_byte (fp, crc >> 8);
+  send_byte (fp, crc);
+  fflush (fp);
+}
+
+
 
 static void
 show_usage (const char *errtext)
@@ -556,7 +665,8 @@ main (int argc, char **argv )
 {
   int last_argc = -1;
   FILE *fp;
-  const char *cmd, *cmdarg1;
+  const char *cmd;
+  char *cmdargs;
 
   if (argc)
     {
@@ -620,7 +730,23 @@ main (int argc, char **argv )
 
   fp = open_line (*argv);
   cmd = argv[1];
-  cmdarg1 = argc < 3? "": argv[2];
+  if (argc < 3)
+    cmdargs = xstrdup ("");
+  else
+    {
+      int n,i;
+
+      for (n=0, i=2; i < argc; i++)
+        n += strlen (argv[i]) + 1;
+      cmdargs = xmalloc (n);
+      strcpy (cmdargs, argv[2]);
+      for (i=3; i < argc; i++)
+        {
+          strcat (cmdargs, " ");
+          strcat (cmdargs, argv[i]);
+        }
+    }
+
   if (!strcmp (cmd, "help"))
     {
       fputs ("help                     This help\n"
@@ -629,9 +755,10 @@ main (int argc, char **argv )
              "query-version\n"
              "query-shutter-state\n"
              "query-shutter-schedule\n"
-             "set-shutter-schedule SLOT TIMESPEC\n"
+             "set-shutter-schedule SLOTNO TIMESPEC up|down\n"
              "reset-shutter-eeprom\n"
              "drive-shutter up|down\n"
+             "sensor-temperature\n"
              ,stdout);
     }
   else  if (!strcmp (cmd, "broadcast-time"))
@@ -645,14 +772,17 @@ main (int argc, char **argv )
   else if (!strcmp (cmd, "query-shutter-schedule"))
     cmd_query_shutter_schedule (fp);
   else if (!strcmp (cmd, "set-shutter-schedule"))
-    cmd_set_shutter_schedule (fp);
+    cmd_set_shutter_schedule (fp, cmdargs);
   else if (!strcmp (cmd, "reset-shutter-eeprom"))
     cmd_reset_shutter_eeprom (fp);
   else if (!strcmp (cmd, "drive-shutter"))
-    cmd_drive_shutter (fp, cmdarg1);
+    cmd_drive_shutter (fp, cmdargs);
+  else if (!strcmp (cmd, "sensor-temperature"))
+    cmd_sensor_temperature (fp);
   else
     err ("invalid command `%s'", cmd);
 
+  free (cmdargs);
 
   fclose (fp);
   return any_error? 1:0;

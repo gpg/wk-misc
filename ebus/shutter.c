@@ -290,6 +290,9 @@ process_schedule (uint16_t time, uint16_t forced_tlow)
   uint16_t tlow, thigh, t, tfound;
   byte i;
 
+  if (!time_has_been_set)
+    return; /* Don't schedule while running without a valid clock.  */
+
   if (schedule_last_tfound > time || forced_tlow)
     schedule_last_tfound = 0;  /* Time wrapped to the next week or forced
                                   schedule action.  */
@@ -393,15 +396,7 @@ process_shutter_cmd (byte *msg)
 
     case P_H61_SHUTTER_QRY_SCHEDULE:
       {
-        byte n, i;
-
-        for (i=0; i < DIM (ee_data.u.shutterctl.schedule); i++)
-          {
-            val16 = eeprom_read_word (&ee_data.u.shutterctl.schedule[i]);
-            if (!val16)
-              break;
-          }
-        n = i;
+        byte i;
 
         msg[1] = msg[3];
         msg[2] = msg[4];
@@ -410,7 +405,7 @@ process_shutter_cmd (byte *msg)
         msg[5] |= P_BUSCTL_RESPMASK;
         msg[7] = 0; /* We only have a global schedule for now.  */
         msg[8] = 0; /* No error.  */
-        for (i=0; i < n; i++)
+        for (i=0; i < DIM (ee_data.u.shutterctl.schedule); i++)
           {
             val16 = eeprom_read_word (&ee_data.u.shutterctl.schedule[i]);
             switch ((val16 % 6))
@@ -421,7 +416,7 @@ process_shutter_cmd (byte *msg)
               }
             val16 /= 6;
             val16 *= 6;
-            msg[9] = n;
+            msg[9] = DIM (ee_data.u.shutterctl.schedule);
             msg[10] = i;
             msg[11] = val16 >> 8;
             msg[12] = val16;
@@ -467,6 +462,43 @@ process_shutter_cmd (byte *msg)
 }
 
 
+
+/* Process a sensor command.  */
+static void
+process_sensor_cmd (byte *msg)
+{
+  uint16_t val16;
+  byte err = 0;
+
+  switch (msg[6])
+    {
+    case P_H61_SENSOR_TEMPERATURE:
+      {
+        msg[1] = msg[3];
+        msg[2] = msg[4];
+        msg[3] = config.nodeid_hi;
+        msg[4] = config.nodeid_lo;
+        msg[5] |= P_BUSCTL_RESPMASK;
+        msg[7] = (1 << 4 | 1); /* Group 1 of 1.  */
+        msg[8] = 0;
+        msg[9] = 0;
+        msg[10] = 0x80; /* No sensor.  */
+        msg[11] = 0;
+        msg[12] = 0x80;
+        msg[13] = 0;
+        msg[14] = 0x80;
+        msg[15] = 0;
+        memset (msg+10, 0, 6);
+        csma_send_message (msg, MSGSIZE);
+      }
+      break;
+
+    default:
+      break;
+    }
+}
+
+
 /* A new message has been received and we must now parse the message
    quickly and see what to do.  We need to return as soon as possible,
    so that the caller may re-enable the receiver.  */
@@ -483,6 +515,11 @@ process_ebus_h61 (byte *msg)
     case P_H61_SHUTTER:
       if (!is_response)
         process_shutter_cmd (msg);
+      break;
+
+    case P_H61_SENSOR:
+      if (!is_response)
+        process_sensor_cmd (msg);
       break;
 
     default:
@@ -583,6 +620,8 @@ init_eeprom (byte force)
           uptime += 24 * 60 * 6;
           downtime += 24 * 60 * 6;
         }
+      for (; i < DIM (ee_data.u.shutterctl.schedule); i++)
+        eeprom_write_word (&ee_data.u.shutterctl.schedule[i], 0);
     }
 }
 

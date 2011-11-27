@@ -22,18 +22,20 @@ CFLAGS = -Wall -Wno-pointer-sign -mmcu=$(MCU) -g -Os
 LIBS =
 
 HOSTCC = gcc
-HOSTCFLAGS = -Wall -Wno-pointer-sign -g -O2
+HOSTCFLAGS = -D_GNU_SOURCE -Wall -Wno-pointer-sign -g -O0
 
 sources = ebus.h hardware.c hardware.h protocol.h csma.c \
 	  ebusdump.c testnode.c shutter.c proto-busctl.h proto-h61.h \
 	  proto-dbgmsg.h onewire.c i2c.c i2c-lcd.c \
-	  housed.c housectl.c hsd-misc.h hsd-time.c hsd-time.h
+	  housed.c housectl.c \
+	  hsd-misc.c hsd-misc.h \
+          hsd-time.c hsd-time.h
 
 all: housed housectl testnode.hex shutter.hex doorbell.hex
 
 common_node_obj = hardware.o csma.o onewire.o
 
-common_hsd_obj = hsd-time.o
+common_hsd_obj = hsd-misc.o hsd-time.o
 
 .PHONY: FORCE
 
@@ -64,7 +66,8 @@ onewire.o: hardware.h ebus.h
 i2c.o: hardware.h ebus.h
 i2c-lcd.o: hardware.h ebus.h
 
-hsd-time.o: hsd-time.h hsd-misc.h
+hsd-misc.o: hsd-misc.c hsd-misc.h
+hsd-time.o: hsd-time.c hsd-time.h hsd-misc.h
 ebusctl.o: hsd-time.h hsd-misc.h
 
 testnode.elf : testnode.o $(common_node_obj)
@@ -80,6 +83,8 @@ doorbell.elf : doorbell.o $(common_node_obj) i2c.o i2c-lcd.o
 %.hex : %.elf
 	$(OBJCOPY) -O ihex -j .text -j .data  $< $@
 
+$(common_hsd_obj):
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ -c $*.c
 
 housed : housed.c protocol.h proto-busctl.h proto-h61.h
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ housed.c

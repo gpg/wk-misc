@@ -75,6 +75,10 @@ struct __attribute__ ((packed)) ee_data_s
            minute + 50 := pull-down
       */
       uint16_t schedule[16];
+      /* If the next variable is 1 a shutter status message will be
+         sent at the end of an action.  If it is 0 none is sent.
+         Other values are reserved for future extensions.  */
+      uint8_t  notify;
     } shutterctl;
 
     struct __attribute__ ((packed))

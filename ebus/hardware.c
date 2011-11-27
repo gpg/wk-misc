@@ -122,6 +122,7 @@ set_current_fulltime (uint16_t tim, byte deci)
   current_time = tim;
   current_clock = deci * 100;
   sei ();
+  time_has_been_set = 1;
 }
 
 

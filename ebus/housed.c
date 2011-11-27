@@ -262,7 +262,15 @@ logmsg_time (unsigned int value, unsigned int decile)
   sec = (value % 6) * 10;
   sec += decile/10;
 
-  logmsg_fmt ("%ud%02u:%02u:%02u.%u", day, hour, min, sec, decile%10);
+  logmsg_fmt ("%s %02u:%02u:%02u.%u",
+              day == 0? "Mon" :
+              day == 1? "Tue" :
+              day == 2? "Wed" :
+              day == 3? "Thu" :
+              day == 4? "Fri" :
+              day == 5? "Sat" :
+              day == 6? "Sun" : "[?]",
+              hour, min, sec, decile%10);
 }
 
 
@@ -359,19 +367,46 @@ process_ebus_busctl (byte *msg, size_t msglen)
 
 
 static void
-p_h61_adcread_cmd (byte *msg, size_t msglen)
+p_h61_sensor_cmd (byte *msg, size_t msglen)
 {
-  logmsg_fmt ("[not_yet_supported]");
+  switch (msg[6])
+    {
+    case P_H61_SENSOR_TEMPERATURE:
+      logmsg_fmt ("Temperature(%u)", msg[7]);
+      break;
+    default:
+      logmsg_fmt ("Type_%u", msg[6]);
+      break;
+    }
 }
 
-static void
-p_h61_adcread_rsp (byte *msg, size_t msglen)
-{
-  logmsg_fmt ("sensor_%d: %u (%02x%02x)",
-              msg[6],
-              (msg[7] << 8 | msg[8]),
-              msg[7], msg[8]);
 
+static void
+p_h61_sensor_rsp (byte *msg, size_t msglen)
+{
+  int i;
+  unsigned short val;
+
+  switch (msg[6])
+    {
+    case P_H61_SENSOR_TEMPERATURE:
+      logmsg_fmt ("Temperature: Group %u[%u]", (msg[7]&0x0f), (msg[7]>>4));
+      for (i=8; i < 16; i += 2)
+        {
+          val = ((msg[i] << 8) | msg[i+1]);
+          if (val == 0x8000)
+            logmsg_fmt ("      -");
+          else if (val == 0x7fff)
+            logmsg_fmt ("  *err*");
+          else
+            logmsg_fmt (" %6.1f", val/10.0);
+        }
+      break;
+
+    default:
+      logmsg_fmt ("Type_%u", msg[6]);
+      break;
+    }
 }
 
 
@@ -432,20 +467,20 @@ process_ebus_h61 (byte *msg, size_t msglen)
 
   switch ((msg[5] & ~P_H61_RESPMASK))
     {
-    case P_H61_ADCREAD:
-      logmsg_fmt ("%s:AdcRead", is_response?"Rsp":"Cmd");
-      if (is_response)
-        p_h61_adcread_rsp (msg, msglen);
-      else
-        p_h61_adcread_cmd (msg, msglen);
-       break;
-
     case P_H61_SHUTTER:
       logmsg_fmt ("%s:Shutter", is_response?"Rsp":"Cmd");
       if (is_response)
         p_h61_shutter_rsp (msg, msglen);
       else
         p_h61_shutter_cmd (msg, msglen);
+       break;
+
+    case P_H61_SENSOR:
+      logmsg_fmt ("%s:Sensor", is_response?"Rsp":"Cmd");
+      if (is_response)
+        p_h61_sensor_rsp (msg, msglen);
+      else
+        p_h61_sensor_cmd (msg, msglen);
        break;
 
     default:

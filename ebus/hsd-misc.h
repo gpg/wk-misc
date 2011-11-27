@@ -18,6 +18,10 @@
 #ifndef HSD_MISC_H
 #define HSD_MISC_H
 
+
+void *xmalloc (size_t n);
+void *xstrdup (char const *string);
+
 static inline int
 ascii_isspace (int a)
 {
@@ -30,6 +34,39 @@ ascii_isspace (int a)
       return 0;
     }
 }
+
+static inline int
+ascii_isupper (int c)
+{
+  return c >= 'A' && c <= 'Z';
+}
+
+static inline int
+ascii_islower (int c)
+{
+  return c >= 'a' && c <= 'z';
+}
+
+static inline int
+ascii_toupper (int c)
+{
+  if (c >= 'a' && c <= 'z')
+    c &= ~0x20;
+  return c;
+}
+
+static inline int
+ascii_tolower (int c)
+{
+  if (c >= 'A' && c <= 'Z')
+    c |= 0x20;
+  return c;
+}
+
+
+int ascii_strcasecmp (char const *a, char const *b);
+int ascii_strncasecmp (char const *a, char const *b, size_t n);
+
 
 /*-- Macros to replace ctype ones to avoid locale problems. --*/
 #define spacep(p)   (*(p) == ' ' || *(p) == '\t')
@@ -47,5 +84,8 @@ ascii_isspace (int a)
                      *(p) <= 'F'? (*(p)-'A'+10):(*(p)-'a'+10))
 #define xtoi_2(p)   ((xtoi_1(p) * 16) + xtoi_1((p)+1))
 #define xtoi_4(p)   ((xtoi_2(p) * 256) + xtoi_2((p)+2))
+
+/* Helper macros.  */
+#define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
 
 #endif /*HSD_MISC_H*/

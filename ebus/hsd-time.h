@@ -18,7 +18,11 @@
 #ifndef HSD_TIME_H
 #define HSD_TIME_H
 
-uint16_t timestr_to_ebustime (const char *string);
+
+#define INVALID_TIME ((uint16_t)(-1))
+
+uint16_t timestr_to_ebustime (const char *string, char **endp);
+char * ebustime_to_timestr (uint16_t ebustime);
 
 
 #endif /*HSD_TIME_H*/
