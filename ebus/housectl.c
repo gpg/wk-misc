@@ -47,6 +47,15 @@ static int verbose;
 static int debug;
 static int line_speed = 19200;
 
+/* My node address.  */
+static unsigned char my_addr_high = 0x01;
+static unsigned char my_addr_low  = 0x01;
+
+/* The receiving node's address.  */
+static unsigned char node_high;
+static unsigned char node_low;
+
+
 /* Error counter.  */
 static int any_error;
 
@@ -280,10 +289,10 @@ cmd_query_time (FILE *fp)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_BUSCTL;
-  msg[1] = 0xff;
-  msg[2] = 0xff;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_BUSCTL_QRY_TIME;
   memset (msg+6, 0, 10);
   crc = compute_crc (msg, 16);
@@ -307,8 +316,8 @@ cmd_query_version (FILE *fp)
   msg[0] = PROTOCOL_EBUS_BUSCTL;
   msg[1] = 0xff;
   msg[2] = 0xff;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_BUSCTL_QRY_VERSION;
   memset (msg+6, 0, 10);
   crc = compute_crc (msg, 16);
@@ -331,10 +340,10 @@ cmd_query_shutter_schedule (FILE *fp)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SHUTTER;
   msg[6] = P_H61_SHUTTER_QRY_SCHEDULE;
   msg[7] = 1;
@@ -361,8 +370,8 @@ cmd_broadcast_time (FILE *fp)
   msg[0] = PROTOCOL_EBUS_BUSCTL;
   msg[1] = 0xff;
   msg[2] = 0xff;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_BUSCTL_TIME;
   msg[6] = 0x03;  /* Decile given, exact time */
   if (dst)
@@ -393,10 +402,10 @@ cmd_broadcast_time (FILE *fp)
 /*   unsigned char action = 0x80; */
 
 /*   msg[0] = PROTOCOL_EBUS_H61; */
-/*   msg[1] = 0x10; */
-/*   msg[2] = 0x05; */
-/*   msg[3] = 0x01; */
-/*   msg[4] = 0x01; */
+/*   msg[1] = node_high; */
+/*   msg[2] = node_low; */
+/*   msg[3] = my_addr_high; */
+/*   msg[4] = my_addr_low; */
 /*   msg[5] = P_H61_SHUTTER; */
 /*   msg[6] = P_H61_SHUTTER_UPD_SCHEDULE; */
 /*   msg[7] = 0; */
@@ -426,10 +435,10 @@ cmd_query_shutter_state (FILE *fp)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SHUTTER;
   msg[6] = P_H61_SHUTTER_QUERY;
   msg[7] = 0;
@@ -460,10 +469,10 @@ cmd_drive_shutter (FILE *fp, const char *subcmd)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SHUTTER;
   msg[6] = P_H61_SHUTTER_DRIVE;
   msg[7] = 0;
@@ -506,10 +515,10 @@ cmd_set_shutter_schedule (FILE *fp, char const *args)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SHUTTER;
   msg[6] = P_H61_SHUTTER_UPD_SCHEDULE;
   msg[7] = 0;
@@ -578,10 +587,10 @@ cmd_reset_shutter_eeprom (FILE *fp)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SHUTTER;
   msg[6] = P_H61_SHUTTER_UPD_SCHEDULE;
   msg[7] = 0xf0;
@@ -613,10 +622,10 @@ cmd_sensor_temperature (FILE *fp)
   int idx;
 
   msg[0] = PROTOCOL_EBUS_H61;
-  msg[1] = 0x10;
-  msg[2] = 0x05;
-  msg[3] = 0x01;
-  msg[4] = 0x01;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
   msg[5] = P_H61_SENSOR;
   msg[6] = P_H61_SENSOR_TEMPERATURE;
   msg[7] = 0; /* Get all.  */
@@ -713,11 +722,19 @@ main (int argc, char **argv )
           argc--; argv++;
           if (argc)
             {
-              line_speed = atoi (*argv);
+              if (!hexdigitp (argv[0])
+                  || !hexdigitp (argv[0]+1)
+                  || argv[0][2] != ':'
+                  || !hexdigitp (argv[0]+3)
+                  || !hexdigitp (argv[0]+4)
+                  || !(ascii_isspace (argv[0][5]) || !argv[0][5]))
+                show_usage ("bad node - expecting SEG:NODE (e.g. 1f:01)");
+              node_high = xtoi_2 (argv[0]);
+              node_low = xtoi_2 (argv[0]+3);
               argc--; argv++;
             }
           else
-            show_usage ("argument missing");
+            show_usage ("argument missing - expecting SEG:NODE (e.g. 1f:01)");
         }
       else if (!strncmp (*argv, "--", 2))
         show_usage ("invalid option");
