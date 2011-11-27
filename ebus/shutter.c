@@ -507,7 +507,7 @@ process_ebus_h61 (byte *msg)
 {
   char is_response = !!(msg[5] & P_H61_RESPMASK);
 
-  if (!(msg[1] == config.nodeid_hi || msg[2] == config.nodeid_lo))
+  if (!(msg[1] == config.nodeid_hi && msg[2] == config.nodeid_lo))
     return; /* Not addressed to us.  */
 
   switch ((msg[5] & ~P_H61_RESPMASK))
