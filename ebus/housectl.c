@@ -333,6 +333,33 @@ cmd_query_version (FILE *fp)
 
 
 static void
+cmd_set_debug_flags (FILE *fp, byte value)
+{
+  byte msg[16];
+  unsigned int crc;
+  int idx;
+
+  msg[0] = PROTOCOL_EBUS_BUSCTL;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
+  msg[5] = P_BUSCTL_SET_DEBUG;
+  msg[6] = value;
+  memset (msg+7, 0, 9);
+  crc = compute_crc (msg, 16);
+
+  send_byte_raw (fp, FRAMESYNCBYTE);
+  for (idx=0; idx < 16; idx++)
+    send_byte (fp, msg[idx]);
+  send_byte (fp, crc >> 8);
+  send_byte (fp, crc);
+  fflush (fp);
+}
+
+
+
+static void
 cmd_query_shutter_schedule (FILE *fp)
 {
   byte msg[16];
@@ -770,6 +797,7 @@ main (int argc, char **argv )
              "broadcast-time\n"
              "query-time\n"
              "query-version\n"
+             "set-debug VALUE\n"
              "query-shutter-state\n"
              "query-shutter-schedule\n"
              "set-shutter-schedule SLOTNO TIMESPEC up|down\n"
@@ -784,6 +812,8 @@ main (int argc, char **argv )
     cmd_query_time (fp);
   else if (!strcmp (cmd, "query-version"))
     cmd_query_version (fp);
+  else if (!strcmp (cmd, "set-debug"))
+    cmd_set_debug_flags (fp, strtoul (cmdargs, NULL, 0));
   else if (!strcmp (cmd, "query-shutter-state"))
     cmd_query_shutter_state (fp);
   else if (!strcmp (cmd, "query-shutter-schedule"))

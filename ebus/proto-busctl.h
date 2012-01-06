@@ -85,6 +85,13 @@
   byte 7   - reserved
   byte 8..14 - GIT revision string or "unknown".
   byte 15   - reserved
+
+* 0x04 := Set Debug Flags
+
+  byte 6     - Debug flags
+  byte 7..15 - rfu
+
+  No responses are defined.
 */
 
 #include "protocol.h"
@@ -93,6 +100,6 @@
 #define P_BUSCTL_TIME        0x01 /* Time Broadcast.  */
 #define P_BUSCTL_QRY_TIME    0x02 /* Query Time.  */
 #define P_BUSCTL_QRY_VERSION 0x03 /* Query software version.  */
-
+#define P_BUSCTL_SET_DEBUG   0x04 /* Set debug flags.  */
 
 #endif /*PROTO_BUSCTL_H*/

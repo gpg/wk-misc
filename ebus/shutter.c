@@ -108,7 +108,7 @@ static volatile enum action_values next_action;
    QueryShutterState response message.  */
 static volatile byte shutter_state;
 
-/* Event flag, triggred (surprise) every 10 seconds.  */
+/* Event flag, triggerd (surprise) every 10 seconds.  */
 static volatile byte ten_seconds_event;
 
 
@@ -251,18 +251,22 @@ ticker_bottom (unsigned int clock)
 }
 
 
-/* static void */
-/* send_dbgmsg (const char *string) */
-/* { */
-/*   byte msg[16]; */
+static void
+send_dbgmsg (const char *string)
+{
+  byte msg[16];
 
-/*   msg[0] = PROTOCOL_EBUS_DBGMSG; */
-/*   msg[1] = config.nodeid_hi; */
-/*   msg[2] = config.nodeid_lo; */
-/*   memset (msg+3, 0, 13); */
-/*   strncpy (msg+3, string, 13); */
-/*   csma_send_message (msg, 16); */
-/* } */
+  if (config.debug_flags)
+    {
+      msg[0] = PROTOCOL_EBUS_DBGMSG;
+      msg[1] = config.nodeid_hi;
+      msg[2] = config.nodeid_lo;
+      memset (msg+3, 0, 13);
+      strncpy (msg+3, string, 13);
+      csma_send_message (msg, 16);
+    }
+}
+
 
 /* static void */
 /* send_dbgmsg_fmt (const char *format, ...) */
@@ -330,9 +334,15 @@ process_schedule (uint16_t time, uint16_t forced_tlow)
       tfound %= 6;
       /* send_dbgmsg_fmt ("act=%u", tfound); */
       if (tfound == SCHEDULE_ACTION_UP)
-        next_action = action_up;
+        {
+          next_action = action_up;
+          send_dbgmsg ("sch-act up");
+        }
       else if (tfound == SCHEDULE_ACTION_DOWN)
-        next_action = action_down;
+        {
+          next_action = action_down;
+          send_dbgmsg ("sch-act dn");
+        }
     }
 }
 
@@ -370,9 +380,15 @@ process_shutter_cmd (byte *msg)
             || (msg[8] & 0x20)    /* Not yet supported.  */ )
           err = 1;
         else if ((msg[8] & 0xc0) == 0xc0)
-          next_action = action_up;
+          {
+            next_action = action_up;
+            send_dbgmsg ("bus-act up");
+          }
         else if ((msg[8] & 0xc0) == 0x80)
-          next_action = action_down;
+          {
+            next_action = action_down;
+            send_dbgmsg ("bus-act dn");
+          }
         else
           err = 1;
 
@@ -467,8 +483,8 @@ process_shutter_cmd (byte *msg)
 static void
 process_sensor_cmd (byte *msg)
 {
-  uint16_t val16;
-  byte err = 0;
+  /* uint16_t val16; */
+  /* byte err = 0; */
 
   switch (msg[6])
     {
@@ -588,6 +604,10 @@ process_ebus_busctl (byte *msg)
       memcpy_P (msg+8, PSTR (GIT_REVISION), 7);
       msg[15] = 0;
       csma_send_message (msg, MSGSIZE);
+      break;
+
+    case P_BUSCTL_SET_DEBUG:
+      set_debug_flags (msg[6]);
       break;
 
     default:

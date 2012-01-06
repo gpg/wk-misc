@@ -45,9 +45,11 @@
 struct __attribute__ ((packed)) ee_config_s
 {
   uint16_t  reserved;
-  byte      nodeid_hi;
-  byte      nodeid_lo;
-  byte      reserved2[12];
+  uint8_t   nodeid_hi;
+  uint8_t   nodeid_lo;
+  uint8_t   reserved1;
+  uint8_t   debug_flags;
+  uint8_t   reservedx[10];
 };
 
 struct ee_config_s ee_config EEMEM = {0};
@@ -126,6 +128,15 @@ set_current_fulltime (uint16_t tim, byte deci)
 }
 
 
+void
+set_debug_flags (uint8_t value)
+{
+
+  eeprom_update_byte (&ee_config.debug_flags, value);
+  config.debug_flags = value;
+}
+
+
 
 /*
    Interrupt service routines
@@ -198,7 +209,7 @@ hardware_setup (byte nodetype)
   /* Copy some configuration data into the RAM.  */
   config.nodeid_hi = eeprom_read_byte (&ee_config.nodeid_hi);
   config.nodeid_lo = eeprom_read_byte (&ee_config.nodeid_lo);
-
+  config.debug_flags = eeprom_read_byte (&ee_config.debug_flags);
 
   /* Lacking any better way to seed rand we use the node id.  A better
      way would be to use the low bit of an ADC to gather some entropy.

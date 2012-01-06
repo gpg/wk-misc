@@ -74,7 +74,7 @@ read_bit (void)
 {
   uint8_t c;
 
-  OW_Bus_PORT |= _BV(1);
+  /* OW_Bus_PORT |= _BV(1); */
 
   /* Drive low for at least 1us; we use 2us.  */
   OW_Bus_PORT &= ~_BV(OW_Bus_BIT);
@@ -131,13 +131,14 @@ onewire_read_byte (void)
   uint8_t c, i;
   uint8_t mask;
 
-  OW_Bus_PORT |= _BV(1);
+  /* OW_Bus_PORT |= _BV(1); */
 
   c = 0;
   for (mask=1, i=0; i < 8; mask <<= 1, i++)
     if (read_bit ())
       c |= mask;
-  OW_Bus_PORT &= ~_BV(1);
+
+  /* OW_Bus_PORT &= ~_BV(1); */
 
   return c;
 }
@@ -165,8 +166,6 @@ onewire_setup (void)
   OW_Bus_DDR  |= _BV(OW_Bus_BIT);
 
   /* For debugging.  */
-  OW_Bus_PORT &= ~_BV(1);
-  OW_Bus_DDR  |= _BV(1);
-
-
+  /* OW_Bus_PORT &= ~_BV(1); */
+  /* OW_Bus_DDR  |= _BV(1); */
 }

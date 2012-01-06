@@ -36,6 +36,7 @@ struct
 {
   byte nodeid_hi;
   byte nodeid_lo;
+  byte debug_flags;
 } config;
 
 
@@ -53,6 +54,7 @@ byte read_key_s3 (void);
 uint16_t get_current_time (void);
 uint16_t get_current_fulltime (byte *r_deci);
 void set_current_fulltime (uint16_t tim, byte deci);
+void set_debug_flags (uint8_t value);
 
 
 /*-- csma.c --*/

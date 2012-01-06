@@ -220,7 +220,18 @@ compute_crc (const unsigned char *msg, size_t msglen)
 static void
 logmsg_start (const char *text)
 {
-  fprintf (stdout, "[%s]", text);
+  struct tm *tp;
+  time_t atime = time (NULL);
+
+  tp = localtime (&atime);
+  fprintf (stdout, "%s_%02d:%02d:%02d [%s]",
+           tp->tm_wday == 1? "Mon":
+           tp->tm_wday == 2? "Tue":
+           tp->tm_wday == 3? "Wed":
+           tp->tm_wday == 4? "Thu":
+           tp->tm_wday == 5? "Fri":
+           tp->tm_wday == 6? "Sat": "Sun",
+           tp->tm_hour, tp->tm_min, tp->tm_sec, text);
 }
 
 static void
@@ -233,7 +244,7 @@ logmsg_end ()
 static void
 logmsg_addr (byte *msg, size_t msglen)
 {
-  fprintf (stdout, " %02x.%02x->%02x.%02x",
+  fprintf (stdout, " %02x:%02x->%02x:%02x",
            msg[3], msg[4], msg[1], msg[2]);
 
   if (msg[3] == 0xff || msg[4] == 0xff)
@@ -296,8 +307,8 @@ process_ebus_test (byte *msg, size_t msglen)
 static void
 process_ebus_dbgmsg (byte *msg, size_t msglen)
 {
-  logmsg_start ("dbgmsg");
-  logmsg_fmt ("%02x.%02x => %.13s", msg[1], msg[2], msg+3);
+  logmsg_start ("dbg");
+  logmsg_fmt ("%02x:%02x->ff:ff \"%.13s\"", msg[1], msg[2], msg+3);
   logmsg_end ();
 }
 
@@ -327,13 +338,20 @@ p_busctl_version (byte *msg, size_t msglen)
 }
 
 
+static void
+p_busctl_set_debug (byte *msg, size_t msglen)
+{
+  logmsg_fmt ("flags=%02x", msg[6]);
+}
+
+
 /* Process busctl messages.  */
 static void
 process_ebus_busctl (byte *msg, size_t msglen)
 {
   char is_response = !!(msg[5] & P_BUSCTL_RESPMASK);
 
-  logmsg_start ("busctl");
+  logmsg_start ("bus");
   logmsg_addr (msg, msglen);
 
   switch ((msg[5] & ~P_BUSCTL_RESPMASK))
@@ -356,6 +374,12 @@ process_ebus_busctl (byte *msg, size_t msglen)
       logmsg_fmt ("%s:QueryVersion", is_response?"Rsp":"Cmd");
       if (is_response)
         p_busctl_version (msg, msglen);
+      break;
+
+    case P_BUSCTL_SET_DEBUG:
+      logmsg_fmt ("%s:SetDebug", is_response?"Rsp":"Cmd");
+      if (!is_response)
+        p_busctl_set_debug (msg, msglen);
       break;
 
     default:
