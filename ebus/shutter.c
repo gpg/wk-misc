@@ -56,6 +56,7 @@
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/eeprom.h>
+#include <util/crc16.h>  /* For _crc_ibutton_update.  */
 
 #include "ebus.h"
 #include "proto-busctl.h"
@@ -110,6 +111,25 @@ static volatile byte shutter_state;
 
 /* Event flag, triggerd (surprise) every 10 seconds.  */
 static volatile byte ten_seconds_event;
+
+/* Sensor action delay counter and event flag.  */
+static volatile uint16_t sensor_action_delay;
+static volatile byte sensor_action_event;
+
+/* A structure to control the sensor actions.  This is not used by an
+   ISR thus no need for volatile.  */
+static struct
+{
+  /* If set a sensor read out has been requested.  The value gives the
+     number of read out tries left.  If it is down to zero an error
+     message will be returned.  */
+  byte active;
+  /* The address to send the response to.  If a second client requests
+     a readout, we won't record the address but broadcast th
+     result.  */
+  byte addr_hi;
+  byte addr_lo;
+} sensor_ctrl;
 
 
 
@@ -247,6 +267,15 @@ ticker_bottom (unsigned int clock)
     {
       ten_seconds_event = 1;
       wakeup_main = 1;
+    }
+
+  if (sensor_action_delay)
+    {
+      if (!--sensor_action_delay)
+        {
+          sensor_action_event = 1;
+          wakeup_main = 1;
+        }
     }
 }
 
@@ -483,29 +512,33 @@ process_shutter_cmd (byte *msg)
 static void
 process_sensor_cmd (byte *msg)
 {
-  /* uint16_t val16; */
-  /* byte err = 0; */
-
   switch (msg[6])
     {
     case P_H61_SENSOR_TEMPERATURE:
-      {
-        msg[1] = msg[3];
-        msg[2] = msg[4];
-        msg[3] = config.nodeid_hi;
-        msg[4] = config.nodeid_lo;
-        msg[5] |= P_BUSCTL_RESPMASK;
-        msg[7] = (1 << 4 | 1); /* Group 1 of 1.  */
-        msg[8] = 0;
-        msg[9] = 0;
-        msg[10] = 0x80; /* No sensor.  */
-        msg[11] = 0;
-        msg[12] = 0x80;
-        msg[13] = 0;
-        msg[14] = 0x80;
-        msg[15] = 0;
-        memset (msg+10, 0, 6);
-        csma_send_message (msg, MSGSIZE);
+      if (sensor_ctrl.active)
+        {
+          /* A second client request, if it is a different one switch
+             to broadcast mode.  */
+          if (msg[3] != sensor_ctrl.addr_hi || msg[4] != sensor_ctrl.addr_lo)
+            {
+              sensor_ctrl.addr_hi = 0xff;
+              sensor_ctrl.addr_lo = 0xff;
+            }
+        }
+      else
+        {
+          sensor_ctrl.active = 5;    /* Number of tries.  */
+          sensor_ctrl.addr_hi = msg[3];
+          sensor_ctrl.addr_lo = msg[4];
+
+          /* Trigger the read out machinery.  */
+          onewire_enable ();
+          onewire_write_byte (0xcc); /* Skip ROM.  */
+          onewire_write_byte (0x44); /* Convert T.  */
+          /* Now we need to wait at least 750ms to read the value from
+             the scratchpad.  */
+          sensor_action_delay = 900; /* ms */
+          sensor_action_event = 0;
       }
       break;
 
@@ -513,6 +546,78 @@ process_sensor_cmd (byte *msg)
       break;
     }
 }
+
+
+/* Try to read the result from the sensor and send it back.  This
+   function shall be called at least 750ms after the first conversion
+   message.  */
+static void
+send_sensor_result (void)
+{
+  byte i, crc;
+  int16_t t;
+  byte msg[16]; /* Used to read the scratchpad and to build the message.  */
+
+  if (!sensor_ctrl.active)
+    return;
+
+  onewire_enable ();         /* Reset */
+  onewire_write_byte (0xcc); /* Skip ROM.  */
+  onewire_write_byte (0xbe); /* Read scratchpad.  */
+  for (i=0; i < 9; i++)
+    msg[i] = onewire_read_byte ();
+
+  crc = 0;
+  for (i=0; i < 8; i++)
+    crc = _crc_ibutton_update (crc, msg[i]);
+
+  if (msg[8] == crc)
+    {
+      t = (msg[1] << 8) | msg[0];
+      t = (t*100 - 25 + ((16 - msg[6])*100 / 16)) / 20;
+    }
+  else
+    {
+      t = 0x7fff;  /* Read error */
+    }
+
+  if (t != 0x7fff || !--sensor_ctrl.active)
+    {
+      /* Success or read error with the counter at zero.  */
+      msg[0] = PROTOCOL_EBUS_H61;
+      msg[1] = sensor_ctrl.addr_hi;
+      msg[2] = sensor_ctrl.addr_lo;
+      msg[3] = config.nodeid_hi;
+      msg[4] = config.nodeid_lo;
+      msg[5] = (P_H61_SENSOR | P_H61_RESPMASK);
+      msg[6] = P_H61_SENSOR_TEMPERATURE;
+      msg[7] = (1 << 4 | 1); /* Group 1 of 1.  */
+      msg[8] = (t >> 8); /* Sensor no. 0.  */
+      msg[9] = t;
+      msg[10] = 0x80; /* No sensor no. 1.  */
+      msg[11] = 0;
+      msg[12] = 0x80; /* No sensor no. 2.  */
+      msg[13] = 0;
+      msg[14] = 0x80; /* No sensor no. 3.  */
+      msg[15] = 0;
+      csma_send_message (msg, MSGSIZE);
+
+      sensor_ctrl.active = 0;  /* Ready. */
+      onewire_disable ();
+    }
+  else
+    {
+      send_dbgmsg ("sens #4");
+      /* Better issue the read command again.  */
+      onewire_enable ();         /* Reset.     */
+      onewire_write_byte (0xcc); /* Skip ROM.  */
+      onewire_write_byte (0x44); /* Convert T. */
+      /* Try again ...  */
+      sensor_action_delay = 1100; /*ms*/
+      sensor_action_event = 0;
+    }
+}
+
 
 
 /* A new message has been received and we must now parse the message
@@ -694,6 +799,12 @@ main (void)
           sei ();
         }
       wakeup_main = 0;
+
+      if (sensor_action_event)
+        {
+          sensor_action_event = 0;
+          send_sensor_result ();
+        }
 
       if (ten_seconds_event)
         {

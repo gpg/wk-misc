@@ -422,7 +422,6 @@ static void
 p_h61_sensor_rsp (byte *msg, size_t msglen)
 {
   int i;
-  unsigned short val;
 
   switch (msg[6])
     {
@@ -430,13 +429,13 @@ p_h61_sensor_rsp (byte *msg, size_t msglen)
       logmsg_fmt ("Temperature: Group %u[%u]", (msg[7]&0x0f), (msg[7]>>4));
       for (i=8; i < 16; i += 2)
         {
-          val = ((msg[i] << 8) | msg[i+1]);
-          if (val == 0x8000)
+          int16_t val = ((msg[i] << 8) | msg[i+1]);
+          if (val == (int16_t)0x8000)
             logmsg_fmt ("      -");
-          else if (val == 0x7fff)
+          else if (val == (int16_t)0x7fff)
             logmsg_fmt ("  *err*");
           else
-            logmsg_fmt (" %6.1f", val/10.0);
+            logmsg_fmt (" %6.1f", (double)val/10.0);
         }
       break;
 
