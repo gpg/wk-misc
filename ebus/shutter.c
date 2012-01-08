@@ -610,6 +610,17 @@ process_ebus_busctl (byte *msg)
       set_debug_flags (msg[6]);
       break;
 
+    case P_BUSCTL_QRY_DEBUG:
+      msg[1] = msg[3];
+      msg[2] = msg[4];
+      msg[3] = config.nodeid_hi;
+      msg[4] = config.nodeid_lo;
+      msg[5] |= P_BUSCTL_RESPMASK;
+      msg[6] = config.debug_flags;
+      memset (msg+7, 0, 9);
+      csma_send_message (msg, MSGSIZE);
+      break;
+
     default:
       break;
     }

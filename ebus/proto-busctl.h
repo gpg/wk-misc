@@ -92,6 +92,16 @@
   byte 7..15 - rfu
 
   No responses are defined.
+
+* 0x05 := Query Debug Flags
+
+  byte 6..15 - rfu, must be 0.
+
+  Response format:
+
+  byte 6     - Debug flags
+  byte 7..15 - rfu
+
 */
 
 #include "protocol.h"
@@ -101,5 +111,6 @@
 #define P_BUSCTL_QRY_TIME    0x02 /* Query Time.  */
 #define P_BUSCTL_QRY_VERSION 0x03 /* Query software version.  */
 #define P_BUSCTL_SET_DEBUG   0x04 /* Set debug flags.  */
+#define P_BUSCTL_QRY_DEBUG   0x05 /* Query debug flags.  */
 
 #endif /*PROTO_BUSCTL_H*/

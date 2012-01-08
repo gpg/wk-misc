@@ -345,6 +345,13 @@ p_busctl_set_debug (byte *msg, size_t msglen)
 }
 
 
+static void
+p_busctl_qry_debug (byte *msg, size_t msglen)
+{
+  logmsg_fmt ("flags=%02x", msg[6]);
+}
+
+
 /* Process busctl messages.  */
 static void
 process_ebus_busctl (byte *msg, size_t msglen)
@@ -380,6 +387,12 @@ process_ebus_busctl (byte *msg, size_t msglen)
       logmsg_fmt ("%s:SetDebug", is_response?"Rsp":"Cmd");
       if (!is_response)
         p_busctl_set_debug (msg, msglen);
+      break;
+
+    case P_BUSCTL_QRY_DEBUG:
+      logmsg_fmt ("%s:QueryDebug", is_response?"Rsp":"Cmd");
+      if (is_response)
+        p_busctl_qry_debug (msg, msglen);
       break;
 
     default:
