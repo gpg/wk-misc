@@ -337,6 +337,12 @@ p_busctl_version (byte *msg, size_t msglen)
               (msg[7] || msg[15])? "[reserved octets are not 0]":"");
 }
 
+static void
+p_busctl_qry_name (byte *msg, size_t msglen)
+{
+  logmsg_fmt ("nodetype=%u name=\"%.8s\"", msg[6], msg+8);
+}
+
 
 static void
 p_busctl_set_debug (byte *msg, size_t msglen)
@@ -381,6 +387,12 @@ process_ebus_busctl (byte *msg, size_t msglen)
       logmsg_fmt ("%s:QueryVersion", is_response?"Rsp":"Cmd");
       if (is_response)
         p_busctl_version (msg, msglen);
+      break;
+
+    case P_BUSCTL_QRY_NAME:
+      logmsg_fmt ("%s:QueryName", is_response?"Rsp":"Cmd");
+      if (is_response)
+        p_busctl_qry_name (msg, msglen);
       break;
 
     case P_BUSCTL_SET_DEBUG:

@@ -331,6 +331,31 @@ cmd_query_version (FILE *fp)
 }
 
 
+static void
+cmd_query_name (FILE *fp)
+{
+  byte msg[16];
+  unsigned int crc;
+  int idx;
+
+  msg[0] = PROTOCOL_EBUS_BUSCTL;
+  msg[1] = node_high;
+  msg[2] = node_low;
+  msg[3] = my_addr_high;
+  msg[4] = my_addr_low;
+  msg[5] = P_BUSCTL_QRY_NAME;
+  memset (msg+6, 0, 10);
+  crc = compute_crc (msg, 16);
+
+  send_byte_raw (fp, FRAMESYNCBYTE);
+  for (idx=0; idx < 16; idx++)
+    send_byte (fp, msg[idx]);
+  send_byte (fp, crc >> 8);
+  send_byte (fp, crc);
+  fflush (fp);
+}
+
+
 
 static void
 cmd_set_debug_flags (FILE *fp, byte value)
@@ -836,6 +861,8 @@ main (int argc, char **argv )
     cmd_query_time (fp);
   else if (!strcmp (cmd, "query-version"))
     cmd_query_version (fp);
+  else if (!strcmp (cmd, "query-name"))
+    cmd_query_name (fp);
   else if (!strcmp (cmd, "set-debug"))
     cmd_set_debug_flags (fp, strtoul (cmdargs, NULL, 0));
   else if (!strcmp (cmd, "query-debug"))

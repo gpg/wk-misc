@@ -49,7 +49,9 @@ struct __attribute__ ((packed)) ee_config_s
   uint8_t   nodeid_lo;
   uint8_t   reserved1;
   uint8_t   debug_flags;
-  uint8_t   reservedx[10];
+  uint8_t   reserved2;
+  uint8_t   reserved3;
+  uint8_t   name[8];  /* The human readable name of the node.  */
 };
 
 struct ee_config_s ee_config EEMEM = {0};
@@ -64,7 +66,6 @@ static volatile uint16_t current_time;
 
 /* Milliseconds in the 10 second period.  */
 static volatile uint16_t current_clock;
-
 
 
 

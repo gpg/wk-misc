@@ -102,6 +102,16 @@
   byte 6     - Debug flags
   byte 7..15 - rfu
 
+* 0x06 := Query Name
+
+  byte 6..15 - rfu, must be 0.
+
+  Response format:
+
+  byte 6   - nodetype (NODETYPE_xxxx)
+  byte 7   - reserved
+  byte 8..15 - name of the node
+
 */
 
 #include "protocol.h"
@@ -112,5 +122,6 @@
 #define P_BUSCTL_QRY_VERSION 0x03 /* Query software version.  */
 #define P_BUSCTL_SET_DEBUG   0x04 /* Set debug flags.  */
 #define P_BUSCTL_QRY_DEBUG   0x05 /* Query debug flags.  */
+#define P_BUSCTL_QRY_NAME    0x06 /* Query Name.  */
 
 #endif /*PROTO_BUSCTL_H*/

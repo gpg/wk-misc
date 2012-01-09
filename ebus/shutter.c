@@ -711,6 +711,21 @@ process_ebus_busctl (byte *msg)
       csma_send_message (msg, MSGSIZE);
       break;
 
+      /* FIXME: Better move this into hardware.c */
+    /* case P_BUSCTL_QRY_NAME: */
+    /*   msg[1] = msg[3]; */
+    /*   msg[2] = msg[4]; */
+    /*   msg[3] = config.nodeid_hi; */
+    /*   msg[4] = config.nodeid_lo; */
+    /*   msg[5] |= P_BUSCTL_RESPMASK; */
+    /*   msg[6] = eeprom_read_byte (&ee_data.nodetype); */
+    /*   msg[7] = 0; */
+    /*   eeprom_read_block (msg+8, config */
+    /*   memcpy_P (msg+8, PSTR (GIT_REVISION), 7); */
+    /*   msg[15] = 0; */
+    /*   csma_send_message (msg, MSGSIZE); */
+    /*   break; */
+
     case P_BUSCTL_SET_DEBUG:
       set_debug_flags (msg[6]);
       break;
