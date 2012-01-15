@@ -80,13 +80,16 @@
 enum __attribute__ ((packed)) action_values {
   action_none = 0,
   action_up,
-  action_down
+  action_down,
+  action_up_key,
+  action_down_key
 };
 
 enum __attribute__ ((packed)) motor_state_values {
   motor_state_off = 0,
   motor_state_pre_off,
   motor_state_pre_off2,
+  motor_state_pre_off3,
   motor_state_pre_up,
   motor_state_pre_up2,
   motor_state_up,
@@ -97,24 +100,44 @@ enum __attribute__ ((packed)) motor_state_values {
   motor_state_down_ready
 };
 
+
+
+/*
+   Communication between ISR and main loop.
+ */
+
+/* Event flag triggered (surprise) every second.  */
+static volatile byte one_second_event;
+
+/* Event flag trigger by key S2.  */
+static volatile byte key_s2_event;
+
+/* Event flag trigger by key S3.  */
+static volatile byte key_s3_event;
+
+/* The motor action delay counter and its event flag.  */
+static volatile uint16_t motor_action_delay;
+static volatile uint16_t motor_action_event;
+
+/* Sensor action delay counter and its event flag.  */
+static volatile uint16_t sensor_action_delay;
+static volatile byte sensor_action_event;
+
+
+
+/*
+   Global state of the main loop.
+ */
+
 /* Remember the last action time.  */
 static uint16_t schedule_last_tfound;
 
-/* The next action to do.  It's value is changed by the commands
-   and a ticker is switching the motor depending on these values.  */
-static volatile enum action_values next_action;
-
+/* The current state of the motor state machine.  */
+static enum motor_state_values motor_state;
 
 /* The shutter state byte.  This is directly used for the
    QueryShutterState response message.  */
-static volatile byte shutter_state;
-
-/* Event flag, triggerd (surprise) every 10 seconds.  */
-static volatile byte ten_seconds_event;
-
-/* Sensor action delay counter and event flag.  */
-static volatile uint16_t sensor_action_delay;
-static volatile byte sensor_action_event;
+static byte shutter_state;
 
 /* A structure to control the sensor actions.  This is not used by an
    ISR thus no need for volatile.  */
@@ -144,138 +167,34 @@ static void init_eeprom (byte force);
 void
 ticker_bottom (unsigned int clock)
 {
-  static volatile enum action_values current_action;
-  static volatile uint16_t action_delay;
-  static volatile enum motor_state_values state = motor_state_off;
-  enum action_values save_action;
-
-  /* Blink the activity LED if the motor is not in off state.  */
-  if (state != motor_state_off)
+  if (!(clock % 1000))
     {
-      if (!(clock % 1000))
-        {
-          if ((LED_Collision & _BV(LED_Collision_BIT)))
-            LED_Collision &= ~_BV (LED_Collision_BIT);
-          else
-            LED_Collision |= _BV(LED_Collision_BIT);
-        }
-    }
-
-  /* Get next action.  */
-  save_action = current_action;
-  if (read_key_s2 ())
-    current_action = current_action != action_down ? action_down : action_none;
-  if (read_key_s3 ())
-    current_action = current_action != action_up? action_up : action_none;
-  if (current_action != save_action || next_action)
-    {
-      if (next_action)
-        {
-          current_action = next_action;
-          next_action = 0;
-        }
-      switch (current_action)
-        {
-        case action_none: state = motor_state_pre_off; break;
-        case action_up:   state = motor_state_pre_up; break;
-        case action_down: state = motor_state_pre_down; break;
-        }
-      /* When a new action has been selected we need to limit the
-         action delay to the minimum value so that we don't stick in
-         the long down or up states.  We also need to make sure that
-         there is an action delay so that we enter the state
-         transition switch. */
-      if (!action_delay)
-        action_delay = 1;
-      else if (action_delay > 200)
-        action_delay = 200;
-    }
-
-  if (action_delay && !--action_delay)
-    {
-      switch (state)
-        {
-        case motor_state_off:
-          LED_Collision &= ~_BV (LED_Collision_BIT); /* Clear LED.  */
-          /* Make sure the motor flags are cleared in the state info.  */
-          shutter_state &= 0b00111111;
-          break;
-
-        label_pre_off:
-        case motor_state_pre_off:
-          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          action_delay = 200; /*ms*/
-          state = motor_state_pre_off2;
-          break;
-        case motor_state_pre_off2:
-          MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
-          action_delay = 200; /*ms*/
-          state = motor_state_off;
-          break;
-
-        case motor_state_pre_up:
-          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          action_delay = 200; /*ms*/
-          state = motor_state_pre_up2;
-          break;
-        case motor_state_pre_up2:
-          MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
-          action_delay = 200; /*ms*/
-          state = motor_state_up;
-          break;
-        case motor_state_up:
-          MOTOR_on |= _BV(MOTOR_on_BIT);     /* Switch motor on. */
-          shutter_state = 0b11000000;
-          /*                |!------- Direction set to up
-           *                +-------- Motor running.        */
-          action_delay = 25000; /*ms*/
-          state = motor_state_up_ready;
-          break;
-        case motor_state_up_ready:
-          shutter_state = 0b00100000;
-          /*                  | !~~!- Value: 0 = 0% closed
-           *                  +------ State in bits 3..0 is valid.  */
-          goto label_pre_off;
-
-        case motor_state_pre_down:
-          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          action_delay = 200; /*ms*/
-          state = motor_state_pre_down2;
-          break;
-        case motor_state_pre_down2:
-          MOTOR_down |= _BV(MOTOR_down_BIT); /* Switch direction relay on. */
-          action_delay = 200; /*ms*/
-          state = motor_state_down;
-          break;
-        case motor_state_down:
-          MOTOR_on |= _BV(MOTOR_on_BIT);     /* Switch motor on. */
-          shutter_state = 0b10000000;
-          /*                |!------- Direction set to down
-           *                +-------- Motor running.        */
-          action_delay = 25000; /*ms*/
-          state = motor_state_down_ready;
-          break;
-        case motor_state_down_ready:
-          shutter_state = 0b00101111;
-          /*                  | !~~!--- Value: 15 = 100% closed
-           *                  +-------- State in bits 3..0 is valid.  */
-          goto label_pre_off;
-        }
-    }
-
-  if (!clock)
-    {
-      ten_seconds_event = 1;
+      one_second_event = 1;
       wakeup_main = 1;
     }
 
-  if (sensor_action_delay)
+  if (!key_s2_event && read_key_s2 ())
     {
-      if (!--sensor_action_delay)
-        {
-          sensor_action_event = 1;
-          wakeup_main = 1;
-        }
+      key_s2_event = 1;
+      wakeup_main = 1;
+    }
+
+  if (!key_s3_event && read_key_s3 ())
+    {
+      key_s3_event = 1;
+      wakeup_main = 1;
+    }
+
+  if (motor_action_delay && !--motor_action_delay)
+    {
+      motor_action_event = 1;
+      wakeup_main = 1;
+    }
+
+  if (sensor_action_delay && !--sensor_action_delay)
+    {
+      sensor_action_event = 1;
+      wakeup_main = 1;
     }
 }
 
@@ -308,6 +227,133 @@ send_dbgmsg (const char *string)
 /*   va_end (arg_ptr); */
 /*   send_dbgmsg (buffer); */
 /* } */
+
+
+/* Trigger a new motor action.  */
+static void
+trigger_action (enum action_values action)
+{
+  static enum action_values last_action;
+
+ again:
+  switch (action)
+    {
+    case action_none: motor_state = motor_state_pre_off;  break;
+    case action_up:   motor_state = motor_state_pre_up;   break;
+    case action_down: motor_state = motor_state_pre_down; break;
+
+    case action_up_key:
+      action = last_action == action_up? action_none : action_up;
+      goto again;
+    case action_down_key:
+      action = last_action == action_down? action_none : action_down;
+      goto again;
+
+    default:
+      return;/* Avoid setting a new delay for unknown states.  */
+    }
+
+  last_action = action;
+
+  /* Now force a new transaction using the ticker interrupt.  We set
+     the delay to 1 ms so that the motor_action_event will be
+     triggered within the next millisecond.  There is no need to
+     disable interrupts; the worst what could happen is a double
+     triggered action and that action is anyway a motor off.  Using
+     this indirect method avoids a race between motor_action_delay and
+     motor_action_event.  */
+  motor_action_delay = 1;
+}
+
+
+/* The main state machine for the shutter motors.  The return value is
+   delay to be taken before the next call to this function.  */
+static uint16_t
+motor_action (void)
+{
+  uint16_t newdelay;
+
+  /* Perform the state transitions.  */
+  do
+    {
+      newdelay = 0;
+      switch (motor_state)
+        {
+        case motor_state_off:
+          break;
+
+        case motor_state_pre_off:
+          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_pre_off2;
+          break;
+        case motor_state_pre_off2:
+          MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_pre_off3;
+          break;
+        case motor_state_pre_off3:
+          LED_Collision &= ~_BV (LED_Collision_BIT); /* Clear LED.  */
+          /* Make sure the motor flags are cleared in the state info.  */
+          shutter_state &= 0b00111111;
+          motor_state = motor_state_off;
+          break;
+
+        case motor_state_pre_up:
+          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_pre_up2;
+          break;
+        case motor_state_pre_up2:
+          MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_up;
+          break;
+        case motor_state_up:
+          MOTOR_on |= _BV(MOTOR_on_BIT);     /* Switch motor on. */
+          shutter_state = 0b11000000;
+          /*                |!------- Direction set to up
+           *                +-------- Motor running.        */
+          newdelay = 25000; /*ms*/
+          motor_state = motor_state_up_ready;
+          break;
+        case motor_state_up_ready:
+          shutter_state = 0b00100000;
+          /*                  | !~~!- Value: 0 = 0% closed
+           *                  +------ State in bits 3..0 is valid.  */
+          motor_state = motor_state_pre_off;
+          break;
+
+        case motor_state_pre_down:
+          MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_pre_down2;
+          break;
+        case motor_state_pre_down2:
+          MOTOR_down |= _BV(MOTOR_down_BIT); /* Switch direction relay on. */
+          newdelay = 200; /*ms*/
+          motor_state = motor_state_down;
+          break;
+        case motor_state_down:
+          MOTOR_on |= _BV(MOTOR_on_BIT);     /* Switch motor on. */
+          shutter_state = 0b10000000;
+          /*                |!------- Direction set to down
+           *                +-------- Motor running.        */
+          newdelay = 25000; /*ms*/
+          motor_state = motor_state_down_ready;
+          break;
+        case motor_state_down_ready:
+          shutter_state = 0b00101111;
+          /*                  | !~~!--- Value: 15 = 100% closed
+           *                  +-------- State in bits 3..0 is valid.  */
+          motor_state = motor_state_pre_off;
+          break;
+        }
+    }
+  while (!newdelay && motor_state != motor_state_off);
+
+  return newdelay;
+}
 
 
 /* Process scheduled actions.  TIME is the current time.  If
@@ -364,14 +410,15 @@ process_schedule (uint16_t time, uint16_t forced_tlow)
       /* send_dbgmsg_fmt ("act=%u", tfound); */
       if (tfound == SCHEDULE_ACTION_UP)
         {
-          next_action = action_up;
           send_dbgmsg ("sch-act up");
+          trigger_action (action_up);
         }
       else if (tfound == SCHEDULE_ACTION_DOWN)
         {
-          next_action = action_down;
           send_dbgmsg ("sch-act dn");
+          trigger_action (action_down);
         }
+
     }
 }
 
@@ -410,13 +457,13 @@ process_shutter_cmd (byte *msg)
           err = 1;
         else if ((msg[8] & 0xc0) == 0xc0)
           {
-            next_action = action_up;
             send_dbgmsg ("bus-act up");
+            trigger_action (action_up);
           }
         else if ((msg[8] & 0xc0) == 0x80)
           {
-            next_action = action_down;
             send_dbgmsg ("bus-act dn");
+            trigger_action (action_down);
           }
         else
           err = 1;
@@ -737,7 +784,8 @@ process_ebus_busctl (byte *msg)
       msg[4] = config.nodeid_lo;
       msg[5] |= P_BUSCTL_RESPMASK;
       msg[6] = config.debug_flags;
-      memset (msg+7, 0, 9);
+      msg[7] = config.reset_flags;
+      memset (msg+8, 0, 8);
       csma_send_message (msg, MSGSIZE);
       break;
 
@@ -783,6 +831,7 @@ init_eeprom (byte force)
 int
 main (void)
 {
+  static int ten_seconds_counter;
   byte *msg;
 
   hardware_setup (NODETYPE_SHUTTER);
@@ -815,23 +864,64 @@ main (void)
         }
       wakeup_main = 0;
 
+      if (key_s2_event)
+        {
+          send_dbgmsg ("key-act down");
+          trigger_action (action_down_key);
+          key_s2_event = key_s3_event = 0;
+        }
+
+      if (key_s3_event)
+        {
+          send_dbgmsg ("key-act up");
+          trigger_action (action_up_key);
+          key_s3_event = 0;
+        }
+
+      if (motor_action_event)
+        {
+          motor_action_event = 0;
+          motor_action_delay = motor_action ();
+        }
+
       if (sensor_action_event)
         {
           sensor_action_event = 0;
           send_sensor_result ();
         }
 
-      if (ten_seconds_event)
+      if (one_second_event)
         {
-          uint16_t t;
+          one_second_event = 0;
 
-          ten_seconds_event = 0;
+          /*
+             Code to run once a second.
+           */
 
-          t = get_current_time ();
-          if (!(t % 6))
+          /* Blink the activity LED if the motor is not in off state.  */
+          if (motor_state != motor_state_off)
             {
-              /* Code to run every minute.  */
-              process_schedule (t, 0);
+              if ((LED_Collision & _BV(LED_Collision_BIT)))
+                LED_Collision &= ~_BV (LED_Collision_BIT);
+              else
+                LED_Collision |= _BV(LED_Collision_BIT);
+            }
+
+
+          if (++ten_seconds_counter == 10)
+            {
+              /*
+                 Code to run once every 10 seconds.
+               */
+              uint16_t t;
+
+              ten_seconds_counter = 0;
+              t = get_current_time ();
+              if (!(t % 6))
+                {
+                  /* Code to run every minute.  */
+                  process_schedule (t, 0);
+                }
             }
         }
 

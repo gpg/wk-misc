@@ -16,6 +16,8 @@ Running an CSMA/CD protocol on the Elektor Bus.              -*- org -*-
     avrdude -c usbasp -pm88 -v -B 4 -U lfuse:w:0xFF:m
     avrdude -c usbasp -pm88 -v -B 4 -U hfuse:w:0xD7:m
 
+  (You may use 0xD4 for hfuse to enable the BOD at 4.3V)
+
   You also need to assign an different node-id to each node in the
   same collision domain by storing them in the EEPROM.  Due to
   restriction of RS485 protocol more than 32 nodes are not possible

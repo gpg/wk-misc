@@ -100,7 +100,8 @@
   Response format:
 
   byte 6     - Debug flags
-  byte 7..15 - rfu
+  byte 7     - Reset flags at startup.
+  byte 8..15 - rfu
 
 * 0x06 := Query Name
 

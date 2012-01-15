@@ -211,6 +211,9 @@ hardware_setup (byte nodetype)
   config.nodeid_hi = eeprom_read_byte (&ee_config.nodeid_hi);
   config.nodeid_lo = eeprom_read_byte (&ee_config.nodeid_lo);
   config.debug_flags = eeprom_read_byte (&ee_config.debug_flags);
+  /* Take a copy the reset flags and clear them.  */
+  config.reset_flags = MCUSR;
+  MCUSR &= ~(_BV(WDRF) | _BV(BORF) | _BV(EXTRF) | _BV(PORF));
 
   /* Lacking any better way to seed rand we use the node id.  A better
      way would be to use the low bit of an ADC to gather some entropy.
@@ -229,5 +232,6 @@ hardware_setup (byte nodetype)
         eeprom_write_dword ((uint32_t*)(&ee_data.nodetype+i), dw);
       eeprom_write_byte (&ee_data.nodetype, nodetype);
     }
+
 
 }

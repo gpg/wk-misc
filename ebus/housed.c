@@ -354,7 +354,11 @@ p_busctl_set_debug (byte *msg, size_t msglen)
 static void
 p_busctl_qry_debug (byte *msg, size_t msglen)
 {
-  logmsg_fmt ("flags=%02x", msg[6]);
+  logmsg_fmt ("dbg_flags=%02x rst_flags=%02x%s%s%s%s ", msg[6], msg[7],
+              (msg[7] & 0x08)? " WDRF":"",
+              (msg[7] & 0x04)? " BORF":"",
+              (msg[7] & 0x02)? " EXTRF":"",
+              (msg[7] & 0x01)? " PORF":"");
 }
 
 

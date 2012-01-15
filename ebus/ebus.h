@@ -37,6 +37,7 @@ struct
   byte nodeid_hi;
   byte nodeid_lo;
   byte debug_flags;
+  byte reset_flags;
 } config;
 
 
