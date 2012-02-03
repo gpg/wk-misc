@@ -30,6 +30,7 @@
 
 #include "ebus.h"
 
+#define DBG_ONEWIRE 1
 
 static int
 write_reset (void)
@@ -74,8 +75,6 @@ read_bit (void)
 {
   uint8_t c;
 
-  /* OW_Bus_PORT |= _BV(1); */
-
   /* Drive low for at least 1us; we use 2us.  */
   OW_Bus_PORT &= ~_BV(OW_Bus_BIT);
   _delay_us (2);
@@ -116,12 +115,18 @@ onewire_write_byte (uint8_t c)
   uint8_t i;
   uint8_t mask;
 
+#ifdef DBG_ONEWIRE
+  OW_Bus_PORT |= _BV(1);
+#endif
   for (mask=1, i=0; i < 8; mask <<= 1, i++)
     if ((c & mask))
       write_one ();
     else
       write_zero ();
   _delay_us (20);
+#ifdef DBG_ONEWIRE
+  OW_Bus_PORT &= ~_BV(1);
+#endif
 }
 
 
@@ -131,14 +136,17 @@ onewire_read_byte (void)
   uint8_t c, i;
   uint8_t mask;
 
-  /* OW_Bus_PORT |= _BV(1); */
-
+#ifdef DBG_ONEWIRE
+  OW_Bus_PORT |= _BV(1);
+#endif
   c = 0;
   for (mask=1, i=0; i < 8; mask <<= 1, i++)
     if (read_bit ())
       c |= mask;
 
-  /* OW_Bus_PORT &= ~_BV(1); */
+#ifdef DBG_ONEWIRE
+  OW_Bus_PORT &= ~_BV(1);
+#endif
 
   return c;
 }
@@ -165,7 +173,8 @@ onewire_setup (void)
   OW_Bus_PORT |= _BV(OW_Bus_BIT);  /* Enable pull-up.  */
   OW_Bus_DDR  |= _BV(OW_Bus_BIT);
 
-  /* For debugging.  */
-  /* OW_Bus_PORT &= ~_BV(1); */
-  /* OW_Bus_DDR  |= _BV(1); */
+#ifdef DBG_ONEWIRE
+  OW_Bus_PORT &= ~_BV(1);
+  OW_Bus_DDR  |= _BV(1);
+#endif
 }
