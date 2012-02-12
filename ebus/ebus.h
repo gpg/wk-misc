@@ -95,6 +95,7 @@ void _lcd_puts_P (const char *progmem_s);
 
 
 /*-- Callbacks to be implemented by each node  --*/
+#define MILLISEC(a)  ((a)/10)
 void ticker_bottom (unsigned int clock);  /* Called by hardware.c. */
 
 

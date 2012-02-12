@@ -64,14 +64,23 @@ struct ee_data_s ee_data EEMEM = {NODETYPE_UNDEFINED, 0, {{0}}};
    explicit roll over after 7 days.  */
 static volatile uint16_t current_time;
 
-/* Milliseconds in the 10 second period.  */
+/* 10 milliseconds in the 10 second period.  */
 static volatile uint16_t current_clock;
 
 
 
 /* Read key S2.  Return true once at the first debounced leading edge
    of the depressed key.  For correct operation this function needs to
-   be called at fixed intervals. */
+   be called at fixed intervals.  If this is done using the 10ms
+   system tick the user is required to press the key for at least
+   100ms.  This should be sufficient to avoid faulty triggers due to
+   sparks and other noisy sources.  My tests using the usual PCB micro
+   keys showed that I was not able to push them for less then 30 ms,
+   50ms were achievable but a common value for a quick push was about
+   150ms to 200ms range.  With the old 1ms system tick we had a
+   threshold of 10ms which was too low to avoid all faulty trigger
+   sources; lightning and other noises triggered an unwanted event at
+   least 2 or 3 times a week.*/
 byte
 read_key_s2 (void)
 {
@@ -113,7 +122,7 @@ get_current_fulltime (byte *r_deci)
   hi = current_time;
   lo = current_clock;
   sei ();
-  *r_deci = lo/100;
+  *r_deci = lo/10;
   return hi;
 }
 
@@ -123,7 +132,7 @@ set_current_fulltime (uint16_t tim, byte deci)
 {
   cli ();
   current_time = tim;
-  current_clock = deci * 100;
+  current_clock = deci * 10;
   sei ();
   time_has_been_set = 1;
 }
@@ -144,14 +153,17 @@ set_debug_flags (uint8_t value)
  */
 
 
-/* 1ms ticker interrupt service routine. */
+/* 2ms ticker interrupt service routine. */
 ISR (TIMER2_COMPA_vect)
 {
-  uint16_t clockval;
+  static uint8_t two_ms_counter;
+
+  if (++two_ms_counter != 5)
+    return;
+  two_ms_counter = 0;
 
   current_clock++;
-
-  if (current_clock >= 10000)
+  if (current_clock >= 1000)
     {
       /* 10 seconds passed.  Bump the current time.  */
       current_time++;
@@ -160,8 +172,7 @@ ISR (TIMER2_COMPA_vect)
       current_clock = 0;
     }
 
-  clockval = current_clock;
-  ticker_bottom (clockval);
+  ticker_bottom (current_clock);
 }
 
 
@@ -199,12 +210,26 @@ hardware_setup (byte nodetype)
   UBRR0H = (UBRR_VAL >> 8) & 0x0f;
   UBRR0L = (UBRR_VAL & 0xff);
 
-  /* Timer 2: 1ms ticker.  */
+  /* Timer 2: 10ms ticker.
+
+     F_ocr = F_cpu / (PRE * (OCR+1))
+     |    F_cpu |  PRE | OCR |        F_ocr |
+     |----------+------+-----+--------------|
+     | 16000000 |   64 |  24 | 10000.000000 |
+     | 16000000 |   64 | 249 |  1000.000000 |
+     | 16000000 |  128 | 249 |   500.000000 |
+     | 16000000 | 1024 | 155 |   100.160260 |
+     #+TBLFM: $4=$1 / ($2 ($3 + 1));%f
+
+     The table indicates that there is no way to get an exact 10ms
+     timer.  It is possible to have an exact 1ms and 2ms timer.  We
+     use a 2ms timer internally along with a counter to turn it into
+     the 10ms timer.
+  */
   TCCR2A = 0x02;   /* Select CTC mode.  */
-  TCCR2B = 0x04;   /* Set prescaler to 64.  */
+  TCCR2B = 0x05;   /* Set prescaler to 128.  */
   TCNT2 = 0x00;    /* Clear timer/counter register.  */
-  OCR2A  = 249;    /* Compare value for 1ms.  Note: This is one less
-                      than the naively computed value 250.  */
+  OCR2A  = 249;    /* Compare value for 2ms.  */
   TIMSK2 = 0x02;   /* Set OCIE2A.  */
 
   /* Copy some configuration data into the RAM.  */

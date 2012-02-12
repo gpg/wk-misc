@@ -172,27 +172,30 @@ main (void)
   sei (); /* Enable interrupts.  */
 
 
-    /* { */
-    /*   byte i, crc, buf[9]; */
+  /* for (;;) */
+  /*   { */
+  /*     byte i, crc, buf[9]; */
 
-    /*   send_dbgmsg_fmt ("serial..."); */
-    /*   onewire_enable (); */
-    /*   onewire_write_byte (0x33); /\* Read ROM.  *\/ */
-    /*   for (i=0; i < 8; i++) */
-    /*     buf[i] = onewire_read_byte (); */
-    /*   _delay_ms (1); */
-    /*   crc = 0; */
-    /*   for (i=0; i < 7; i++) */
-    /*     crc = _crc_ibutton_update (crc, buf[i]); */
+  /*     send_dbgmsg_fmt ("serial..."); */
+  /*     onewire_enable (); */
+  /*     onewire_write_byte (0x33); /\* Read ROM.  *\/ */
+  /*     _delay_ms (50); */
+  /*     onewire_enable (); */
+  /*     for (i=0; i < 8; i++) */
+  /*       buf[i] = onewire_read_byte (); */
+  /*     _delay_ms (1); */
+  /*     crc = 0; */
+  /*     for (i=0; i < 7; i++) */
+  /*       crc = _crc_ibutton_update (crc, buf[i]); */
 
-    /*   send_dbgmsg_fmt ("%02x %02x%02x%02x %02x", */
-    /*                    buf[0], buf[1], buf[2], buf[3], buf[7]); */
-    /*   send_dbgmsg_fmt ("%02x%02x%02x %s", */
-    /*                    buf[4], buf[5], buf[6], */
-    /*                    buf[7] == crc? "ok":"bad"); */
+  /*     send_dbgmsg_fmt ("%02x %02x%02x%02x %02x", */
+  /*                      buf[0], buf[1], buf[2], buf[3], buf[7]); */
+  /*     send_dbgmsg_fmt ("%02x%02x%02x %s", */
+  /*                      buf[4], buf[5], buf[6], */
+  /*                      buf[7] == crc? "ok":"bad"); */
 
-    /*   _delay_ms (2000); */
-    /* } */
+  /*     _delay_ms (2000); */
+  /*   } */
 
   for (;;)
     {
@@ -201,8 +204,8 @@ main (void)
       onewire_enable ();
       onewire_write_byte (0xcc); /* Skip ROM.  */
       onewire_write_byte (0x44); /* Convert T.  */
-      onewire_wait_for_one ();
-      _delay_ms (100);
+      /* onewire_wait_for_one (); */
+      _delay_ms (900);
       onewire_enable ();         /* Reset */
       onewire_write_byte (0xcc); /* Skip ROM.  */
       onewire_write_byte (0xbe); /* Read scratchpad.  */
@@ -222,8 +225,11 @@ main (void)
 
           send_dbgmsg_fmt ("t=%d (%d)", t, tread);
         }
+      else
+        send_dbgmsg_fmt ("badcrc");
 
-      _delay_ms (5000);
+      onewire_disable ();
+      _delay_ms (1000);
     }
 
 

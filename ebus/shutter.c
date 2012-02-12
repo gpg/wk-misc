@@ -162,12 +162,13 @@ static void init_eeprom (byte force);
 
 
 
-/* This code is called by the 1ms ticker interrupt service routine
-   with the current clock value given in milliseconds from 0..9999. */
+/* This code is called by the 10ms ticker interrupt service routine
+   with the current clock value given in 10 millisecond increments
+   from 0..999. */
 void
 ticker_bottom (unsigned int clock)
 {
-  if (!(clock % 1000))
+  if (!(clock % 100))
     {
       one_second_event = 1;
       wakeup_main = 1;
@@ -256,8 +257,8 @@ trigger_action (enum action_values action)
   last_action = action;
 
   /* Now force a new transaction using the ticker interrupt.  We set
-     the delay to 1 ms so that the motor_action_event will be
-     triggered within the next millisecond.  There is no need to
+     the delay to 10 ms so that the motor_action_event will be
+     triggered within the next 10 milliseconds.  There is no need to
      disable interrupts; the worst what could happen is a double
      triggered action and that action is anyway a motor off.  Using
      this indirect method avoids a race between motor_action_delay and
@@ -284,12 +285,12 @@ motor_action (void)
 
         case motor_state_pre_off:
           MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_pre_off2;
           break;
         case motor_state_pre_off2:
           MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_pre_off3;
           break;
         case motor_state_pre_off3:
@@ -301,12 +302,12 @@ motor_action (void)
 
         case motor_state_pre_up:
           MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_pre_up2;
           break;
         case motor_state_pre_up2:
           MOTOR_down &= ~_BV(MOTOR_down_BIT);/* Switch direction relay off. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_up;
           break;
         case motor_state_up:
@@ -314,7 +315,7 @@ motor_action (void)
           shutter_state = 0b11000000;
           /*                |!------- Direction set to up
            *                +-------- Motor running.        */
-          newdelay = 25000; /*ms*/
+          newdelay = MILLISEC (25000);
           motor_state = motor_state_up_ready;
           break;
         case motor_state_up_ready:
@@ -326,12 +327,12 @@ motor_action (void)
 
         case motor_state_pre_down:
           MOTOR_on &= ~_BV(MOTOR_on_BIT);    /* Switch motor off. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_pre_down2;
           break;
         case motor_state_pre_down2:
           MOTOR_down |= _BV(MOTOR_down_BIT); /* Switch direction relay on. */
-          newdelay = 200; /*ms*/
+          newdelay = MILLISEC (200);
           motor_state = motor_state_down;
           break;
         case motor_state_down:
@@ -339,7 +340,7 @@ motor_action (void)
           shutter_state = 0b10000000;
           /*                |!------- Direction set to down
            *                +-------- Motor running.        */
-          newdelay = 25000; /*ms*/
+          newdelay = MILLISEC (25000);
           motor_state = motor_state_down_ready;
           break;
         case motor_state_down_ready:
@@ -584,7 +585,7 @@ process_sensor_cmd (byte *msg)
           onewire_write_byte (0x44); /* Convert T.  */
           /* Now we need to wait at least 750ms to read the value from
              the scratchpad.  */
-          sensor_action_delay = 900; /* ms */
+          sensor_action_delay = MILLISEC (900);
           sensor_action_event = 0;
       }
       break;
@@ -660,7 +661,7 @@ send_sensor_result (void)
       onewire_write_byte (0xcc); /* Skip ROM.  */
       onewire_write_byte (0x44); /* Convert T. */
       /* Try again ...  */
-      sensor_action_delay = 1100; /*ms*/
+      sensor_action_delay = MILLISEC (1100);
       sensor_action_event = 0;
     }
 }

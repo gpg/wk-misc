@@ -21,7 +21,7 @@ Running an CSMA/CD protocol on the Elektor Bus.              -*- org -*-
   You also need to assign an different node-id to each node in the
   same collision domain by storing them in the EEPROM.  Due to
   restriction of RS485 protocol more than 32 nodes are not possible
-  with most modern drivers.  Do allow for easier switching we suggest
+  with most modern drivers.  To allow for easier switching we suggest
   to use only nodes ids in the range 1..30.  If more buses will
   eventually be attached the high bits may be used to identify the
   bus.  Such a simple scheme allows easy routing between buses by
