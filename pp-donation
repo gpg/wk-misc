@@ -1,0 +1,14 @@
+#!/bin/sh
+# Extract donation details from a Paypal notification mail
+#
+# Due to the problem of passing more than one argument in a shebang
+# script, we use this wrapper script to call gawk.  gawk is required
+# for gensub.
+
+script=$0.awk
+
+# We better resort to the C locale to avoid a bug in the -b option
+LC_ALL=C
+export LC_ALL
+
+exec gawk -b -f "$script" "$@"

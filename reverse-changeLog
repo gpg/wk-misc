@@ -1,0 +1,20 @@
+#!/bin/sh
+#                                                    -*- sh -*-
+# Sometimes we find changelogs in chronological order and not
+# in the desired reverse chronological order.  This script fixes that.
+#
+#  Usage:
+#     reverse-changelog <ChangeLog >ChangedLog.fixed
+
+awk '
+/^[MTWTFS12][a-z0-9]+/   { flush(); i = 0 }
+                         { i++; arr[i] = $0 }
+END                      { flush() }
+
+
+function flush ()
+{
+   for (; i > 0; i--)
+      print arr[i];
+}
+' | tac

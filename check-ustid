@@ -1,0 +1,25 @@
+#!/bin/sh
+
+ourid="DE215605608"
+otherid="$1"
+# Altes Verfahren
+#host="wddx.bff-online.de"
+#
+#url="/ustid.php?eigene_id=${ourid}&abfrage_id=$otherid"
+#
+#printf "GET $url HTTP/1.0\r\nHost: $host\r\n\r\n" | nc $host 80 \
+#     | sed 's/<var/\n<var/g'
+#echo
+
+
+host="evatr.bff-online.de"
+
+url="http://evatr.bff-online.de/evatrRPC?"
+url="${url}UstId_1=${ourid}&UstId_2=${otherid}"
+url="${url}&Firmenname=&Ort=&PLZ=&Strasse=&Druck="
+
+wget -O - "$url" 2>/dev/null| awk -F'>' '
+/<value><string>ErrorCode</  { found=1; next}
+found && /^<value><string>/  { print $3 }
+found = 0
+'

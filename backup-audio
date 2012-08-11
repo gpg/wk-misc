@@ -1,0 +1,108 @@
+#!/bin/sh
+# Backup a collection of Ogg audiofiles to a set of DVDs.     -*- sh -*-
+# Copyright (C) 2008 Werner Koch
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA
+
+# Default values
+PGM="backup-audio"
+PGM_VERSION="0.1"
+LC_ALL=C
+dryrun=no
+
+# Helper constants
+tick='`'
+
+# Parse the options
+prev=
+while [ $# -gt 0 ]; do
+  arg="$1"
+  case $arg in
+      -*=*) optarg=$(echo "X$arg" | sed -e '1s/^X//' -e 's/[-_a-zA-Z0-9]*=//')
+            ;;
+         *) optarg=
+            ;;
+  esac
+  if [ -n "$prev" ]; then
+    eval "$prev=\$arg"
+    prev=
+    shift
+    continue
+  fi
+  case $arg in
+      --version)
+          echo "$PGM $PGM_VERSION"
+          exit 0
+          ;;
+
+      --help|-h)
+          cat <<EOF
+Usage: $PGM [options] [arguments]
+Backup a collection of audio files to a set of DVDs
+
+Options:
+  -n, --dry-run          Do not create any output
+
+
+Example:
+
+  $PGM /var/home/foo/audio-collection
+
+EOF
+          exit 0
+          ;;
+    
+      --dry-run|-n)
+          dryrun=yes
+          ;;
+
+      -*)
+          echo "$PGM: invalid option $tick$arg'" >&2
+          exit 1
+          ;;
+
+      *)
+          break
+          ;;
+  esac
+  shift
+done
+if [ -n "$prev" ]; then
+  echo "$PGM: argument missing for option $tick$prev'" >&2
+  exit 1
+fi
+
+if [ $# != 1 ]; then
+    echo "usage: $PGM <directory>" >&2
+    exit 1
+fi
+sourcedir="$1"
+
+find $sourcedir -mindepth 2 -maxdepth 2 -type d -print0 | xargs -0 du -ms \
+  | awk '
+
+{ sum += $1
+  print $0
+  if (sum > 4300) {
+    print "-----"
+    print sum, "   total" 
+    sum = 0
+    dvdcount++;
+  }
+ }
+END { print "number of DVD required: " dvdcount }
+'
+
+ 
