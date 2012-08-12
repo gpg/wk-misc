@@ -133,7 +133,7 @@ byte
 i2c_start_mt (byte address)
 {
   /* We need to send an SLA+W; thus clear the LSB.  */
-  address &= 0xf7;
+  address &= 0xfe;
 
   if (send_start ())
     {
