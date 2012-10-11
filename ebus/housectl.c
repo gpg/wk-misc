@@ -581,11 +581,8 @@ cmd_drive_shutter (FILE *fp, const char *subcmd)
 
 
 static void
-cmd_set_shutter_schedule (FILE *fp, char const *args)
+do_set_shutter_schedule (FILE *fp, int slot, int16_t t, byte action)
 {
-  int slot;
-  uint16_t t;
-  char *endp;
   byte msg[16];
   unsigned int crc;
   int idx;
@@ -600,19 +597,59 @@ cmd_set_shutter_schedule (FILE *fp, char const *args)
   msg[7] = 0;
   msg[8] = 0;
   msg[9] = 1;
+  msg[10] = slot;
+  msg[11] = t >> 8;
+  msg[12] = t;
+  msg[13] = action;
+  msg[14] = 0;
+  msg[15] = 0;
+  crc = compute_crc (msg, 16);
+  send_byte_raw (fp, FRAMESYNCBYTE);
+  for (idx=0; idx < 16; idx++)
+    send_byte (fp, msg[idx]);
+  send_byte (fp, crc >> 8);
+  send_byte (fp, crc);
+  fflush (fp);
+  /* We need to sleep a while to avoid a message overrun at the node.
+     A better strategy would be to ask the node whether it is ready
+     for the next setting.  To do this, we need to integrate with
+     housed first.  */
+  {
+    struct timeval tv = { 0, 250000 };
+    select (0, NULL, NULL, NULL, &tv);
+  }
+}
+
+
+/*
+ * set-shutter-schedule SLOTNO|* TIMESPEC up|down|TIMESPEC
+ */
+static void
+cmd_set_shutter_schedule (FILE *fp, char const *args)
+{
+  int slot, wday;
+  uint16_t t, t2;
+  char *endp;
+  byte action;
 
   for (; *args && ascii_isspace (*args); args++)
     ;
 
-  slot = strtol (args, &endp, 10);
-  if (!digitp (args) || slot < 0 || slot > 15)
+  if (args[0] == '*' && (ascii_isspace (args[1]) || !args[1]))
     {
-      err ("invalid slot number %d - must be 0..15", slot);
-      return;
+      slot = -1;
+      args++;
     }
-  args = endp;
-
-  msg[10] = slot;
+  else
+    {
+      slot = strtol (args, &endp, 10);
+      if (!digitp (args) || slot < 0 || slot > 15)
+        {
+          err ("invalid slot number %d - must be 0..15", slot);
+          return;
+        }
+      args = endp;
+    }
 
   if (!ascii_isspace (*args))
     {
@@ -628,30 +665,57 @@ cmd_set_shutter_schedule (FILE *fp, char const *args)
   for (args = endp; *args && ascii_isspace (*args); args++)
     ;
 
-  msg[11] = t >> 8;
-  msg[12] = t;
-
-  if (!strcmp (args, "up"))
-    msg[13] = 0xc0;
+  t2 = timestr_to_ebustime (args, &endp);
+  if (t2 != INVALID_TIME)
+    action = 0; /* dummy  */
+  else if (!strcmp (args, "up"))
+    action = 0xc0;
   else if (!strcmp (args, "down"))
-    msg[13] = 0x80;
+    action = 0x80;
   else if (!strcmp (args, "none"))
-    msg[13] = 0;
+    action = 0;
   else
     {
       err ("invalid action given - must be \"up\", \"down\" or \"none\"");
       return;
     }
 
-  msg[14] = 0;
-  msg[15] = 0;
-  crc = compute_crc (msg, 16);
-  send_byte_raw (fp, FRAMESYNCBYTE);
-  for (idx=0; idx < 16; idx++)
-    send_byte (fp, msg[idx]);
-  send_byte (fp, crc >> 8);
-  send_byte (fp, crc);
-  fflush (fp);
+  if (slot == -1)
+    {
+
+      for (slot=wday=0; slot < 16; slot++, wday++)
+        {
+          /* Remove the weekday from the timespec and set it to the
+             current weekday. */
+          t -= ((t/6/60/24)*6*60*24);
+          t += (wday%7)*6*60*24;
+
+          if (t2 != INVALID_TIME)
+            {
+              t2 -= ((t2/6/60/24)*6*60*24);
+              t2 += (wday%7)*6*60*24;
+
+              do_set_shutter_schedule (fp, slot, t, 0xc0 /*up*/);
+              slot++;
+              do_set_shutter_schedule (fp, slot, t2, 0x80 /*down*/);
+            }
+          else
+            do_set_shutter_schedule (fp, slot, t, action);
+        }
+    }
+  else
+    {
+      if (t2 != INVALID_TIME)
+        {
+          do_set_shutter_schedule (fp, slot, t, 0xc0 /*up*/);
+          slot++;
+          if (slot < 16)
+            do_set_shutter_schedule (fp, slot, t2, 0x80 /*down*/);
+        }
+      else
+        do_set_shutter_schedule (fp, slot, t, action);
+    }
+
 }
 
 
@@ -849,7 +913,7 @@ main (int argc, char **argv )
              "set-debug VALUE\n"
              "query-shutter-state\n"
              "query-shutter-schedule\n"
-             "set-shutter-schedule SLOTNO TIMESPEC up|down\n"
+             "set-shutter-schedule SLOTNO|* TIMESPEC up|down|TIMESPEC\n"
              "reset-shutter-eeprom\n"
              "drive-shutter up|down\n"
              "sensor-temperature\n"
