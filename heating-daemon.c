@@ -24,9 +24,10 @@
 #include <assert.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
 
 #define PGM           "heating-daemon"
-#define PGM_VERSION   "0.0"
+#define PGM_VERSION   "0.1"
 #define PGM_BUGREPORT "wk@gnupg.org"
 
 /* Option flags. */
@@ -81,7 +82,7 @@ inf (const char *format, ...)
   if (verbose)
     {
       fprintf (stderr, "%s: ", PGM);
-      
+
       va_start (arg_ptr, format);
       vfprintf (stderr, format, arg_ptr);
       va_end (arg_ptr);
@@ -131,6 +132,8 @@ run_loop (FILE *fp)
   char line[1024];
   size_t len;
   int c;
+  time_t lasttime = 0;
+  time_t curtime;
 
   fseek (fp, 0L, SEEK_CUR);
   fputs ("\r\n\r\nAT+M1\r\n", fp);
@@ -152,6 +155,13 @@ run_loop (FILE *fp)
 
       if (*line && line[1] == ':')
         {
+          curtime = time (NULL);
+          if (curtime >= lasttime + 60)
+            {
+              lasttime = curtime;
+              printf ("$:%lu:\n", (unsigned long)curtime);
+            }
+
           fputs (line, stdout);
           putchar ('\n');
         }
@@ -181,7 +191,7 @@ show_usage (int ex)
 }
 
 
-int 
+int
 main (int argc, char **argv)
 {
   int last_argc = -1;
@@ -220,7 +230,7 @@ main (int argc, char **argv)
         }
       else if (!strncmp (*argv, "--", 2))
         show_usage (1);
-    }          
+    }
 
   if (argc)
     show_usage (1);
