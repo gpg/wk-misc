@@ -226,26 +226,26 @@ static void set_opt_arg (ARGPARSE_ARGS * arg, unsigned flags, char *s);
 static void show_help (ARGPARSE_OPTS * opts, unsigned flags);
 static void show_version (void);
 
-static INLINE unsigned long HashName (const char *s);
-static void HashInfos (void);
-static void Err (int rc, const char *s, ...);
-static void Process (const char *filename);
-static FIELD StoreFieldname (const char *fname, long offset);
-static DATA ExpandDataSlot (FIELD field, DATA data);
-static void NewRecord (long);
-static FIELD GetFirstField (void);
-static FIELD GetNextField (void);
-static void FinishRecord (void);
-static void PrintFormat2 (int flush);
-static void PrintTexFile (int);
-static int ProcessTexOp (const char *op);
-static void DoSort (void);
-static int DoSortFnc (const void *arg_a, const void *arg_b);
+static INLINE unsigned long hash_name (const char *s);
+static void dump_hash_infos (void);
+static void log_error (int rc, const char *s, ...);
+static void process (const char *filename);
+static FIELD store_field_name (const char *fname, long offset);
+static DATA expand_data_slot (FIELD field, DATA data);
+static void new_record (long);
+static FIELD get_first_field (void);
+static FIELD get_next_field (void);
+static void finish_record (void);
+static void print_format2 (int flush);
+static void print_tex_file (int);
+static int process_tex_op (const char *op);
+static void do_sort (void);
+static int do_sort_fnc (const void *arg_a, const void *arg_b);
 
-static const char *CopyRight (int level);
+static const char *get_usage_str (int level);
 
 static void
-ShowCopyRight (int level)
+show_usage (int level)
 {
   static int sentinel = 0;
 
@@ -255,21 +255,21 @@ ShowCopyRight (int level)
   sentinel++;
   if (!level)
     {
-      fputs (CopyRight (level), stderr);
+      fputs (get_usage_str (level), stderr);
       putc ('\n', stderr);
-      fputs (CopyRight (31), stderr);
-      fprintf (stderr, "%s (%s)\n", CopyRight (32), CopyRight (24));
+      fputs (get_usage_str (31), stderr);
+      fprintf (stderr, "%s (%s)\n", get_usage_str (32), get_usage_str (24));
       fflush (stderr);
     }
   else if (level == 1)
     {
-      fputs (CopyRight (level), stderr);
+      fputs (get_usage_str (level), stderr);
       putc ('\n', stderr);
       exit (1);
     }
   else if (level == 2)
     {
-      puts (CopyRight (level));
+      puts (get_usage_str (level));
       exit (0);
     }
   sentinel--;
@@ -277,7 +277,7 @@ ShowCopyRight (int level)
 
 
 static const char *
-CopyRight (int level)
+get_usage_str (int level)
 {
   const char *p;
   switch (level)
@@ -313,7 +313,7 @@ CopyRight (int level)
     default:
       p = "";
     }
-  ShowCopyRight (level);
+  show_usage (level);
   return p;
 }
 
@@ -344,7 +344,7 @@ xcalloc (size_t n, size_t m)
 
 
 static void
-StripTrailingWSpaces (char *str)
+strip_trailing_ws (char *str)
 {
   char *p;
   char *mark;
@@ -369,7 +369,7 @@ StripTrailingWSpaces (char *str)
 
 
 static int
-ArgParse (ARGPARSE_ARGS * arg, ARGPARSE_OPTS * opts)
+arg_parse (ARGPARSE_ARGS * arg, ARGPARSE_OPTS * opts)
 {
   int index;
   int argc;
@@ -414,7 +414,7 @@ ArgParse (ARGPARSE_ARGS * arg, ARGPARSE_OPTS * opts)
       index++;
     }
 
-next_one:
+ next_one:
   if (!argc)
     {				/* no more args */
       arg->r_opt = 0;
@@ -460,8 +460,8 @@ next_one:
 	show_version ();
       else if (!opts[i].short_opt && !strcmp ("warranty", s + 2))
 	{
-	  puts (CopyRight (10));
-	  puts (CopyRight (31));
+	  puts (get_usage_str (10));
+	  puts (get_usage_str (31));
 	  exit (0);
 	}
 
@@ -604,7 +604,7 @@ next_one:
       goto next_one;
     }
 
-leave:
+ leave:
   *arg->argc = argc;
   *arg->argv = argv;
   arg->internal.index = index;
@@ -641,8 +641,8 @@ show_help (ARGPARSE_OPTS * opts, unsigned flags)
 {
   const char *s;
 
-  puts (CopyRight (10));
-  s = CopyRight (12);
+  puts (get_usage_str (10));
+  s = get_usage_str (12);
   if (*s == '\n')
     s++;
   puts (s);
@@ -693,7 +693,7 @@ show_help (ARGPARSE_OPTS * opts, unsigned flags)
       if (flags & 32)
 	puts ("\n(A single dash may be used instead of the double ones)");
     }
-  if ((s = CopyRight (19)))
+  if ((s = get_usage_str (19)))
     {				/* bug reports to ... */
       putchar ('\n');
       fputs (s, stdout);
@@ -706,9 +706,9 @@ static void
 show_version ()
 {
   const char *s;
-  printf ("%s version %s (%s", CopyRight (13), CopyRight (14),
-	  CopyRight (45));
-  if ((s = CopyRight (24)) && *s)
+  printf ("%s version %s (%s", get_usage_str (13), get_usage_str (14),
+	  get_usage_str (45));
+  if ((s = get_usage_str (24)) && *s)
     {
       printf (", %s)\n", s);
     }
@@ -740,7 +740,7 @@ main (int argc, char **argv)
   char **org_argv;
   OUTFIELD of, of2;
 
-  while (ArgParse (&pargs, opts))
+  while (arg_parse (&pargs, opts))
     {
       switch (pargs.r_opt)
 	{
@@ -802,27 +802,27 @@ main (int argc, char **argv)
   org_argc = argc;
   org_argv = argv;
 
-pass_two:
+ pass_two:
   if (!argc)
-    Process (NULL);
+    process (NULL);
   else
     {
       for (; argc; argc--, argv++)
-	Process (*argv);
+	process (*argv);
     }
   if (opt.texfile)
     {
       if (tex.in_record_block && opt.sortmode != 1)
 	{
-	  PrintTexFile (1);
+	  print_tex_file (1);
 	}
     }
   else if (opt.format == 2 && opt.sortmode != 1)
-    PrintFormat2 (1);		/* flush */
+    print_format2 (1);		/* flush */
 
   if (opt.sortmode == 1 && sortlist)
     {
-      DoSort ();
+      do_sort ();
       argc = org_argc;
       argv = org_argv;
       opt.sortmode = 2;
@@ -853,14 +853,14 @@ pass_two:
 	    putc ('\n', fp);
 	}
       fputs ("--- End fieldlist ---\n", fp);
-      HashInfos ();
+      dump_hash_infos ();
     }
   return 0;
 }
 
 
 static INLINE unsigned long
-HashName (const char *s_arg)
+hash_name (const char *s_arg)
 {
   const unsigned char *s = (const unsigned char*)s_arg;
   unsigned long hashVal = 0;
@@ -882,7 +882,7 @@ HashName (const char *s_arg)
 
 
 static void
-HashInfos ()
+dump_hash_infos ()
 {
   int i, sum, perBucket, n;
   NAMEBUCKET r;
@@ -903,7 +903,7 @@ HashInfos ()
 
 
 static void
-Err (int rc, const char *s, ...)
+log_error (int rc, const char *s, ...)
 {
   va_list arg_ptr;
   FILE *fp = stderr;
@@ -918,7 +918,7 @@ Err (int rc, const char *s, ...)
 
 
 static void
-Process (const char *filename)
+process (const char *filename)
 {
   FILE *fp;
   int c;
@@ -988,7 +988,8 @@ Process (const char *filename)
 	  switch (state)
 	    {
 	    case sFIELD:
-	      Err (2, "%s:%ld: fieldname not terminated", filename, lineno);
+	      log_error (2, "%s:%ld: fieldname not terminated",
+                         filename, lineno);
 	      break;
 	    case sDATA:
 	      pending_lf++;
@@ -1026,7 +1027,7 @@ Process (const char *filename)
 		}
 	    }
 	  else if (c == ':')
-	    Err (2, "%s:%ld: line starts with a colon", filename, lineno);
+	    log_error (2, "%s:%ld: line starts with a colon", filename, lineno);
 	  else
 	    {
 	      switch (state)
@@ -1053,8 +1054,8 @@ Process (const char *filename)
 	    case sINIT:
 	      if (!linewrn)
 		{
-		  Err (0, "%s:%lu: warning: garbage detected",
-		       filename, lineno);
+		  log_error (0, "%s:%lu: warning: garbage detected",
+                             filename, lineno);
 		  linewrn++;
 		}
 	      break;
@@ -1064,22 +1065,22 @@ Process (const char *filename)
 		  char *p;
 
 		  fname[fnameidx] = 0;
-		  StripTrailingWSpaces (fname);
+		  strip_trailing_ws (fname);
 		  if ((p = strrchr (fname, '.')))
 		    {
 		      *p++ = 0;
-		      StripTrailingWSpaces (fname);
+		      strip_trailing_ws (fname);
 		      index = atoi (p);
 		      if (index < 0 || index > 255)
-			Err (2, "%s:%lu: invalid index of fieldname",
-			     filename, lineno);
+			log_error (2, "%s:%lu: invalid index of fieldname",
+                                   filename, lineno);
 		    }
 		  else
 		    index = 0;	/* must calculate an index */
 		  if (!*fname)
-		    Err (2, "%s:%lu: empty fieldname", filename, lineno);
+		    log_error (2, "%s:%lu: empty fieldname", filename, lineno);
 		  new_record_flag = 0;
-		  f = StoreFieldname (fname, lineoff);
+		  f = store_field_name (fname, lineoff);
 		  if (opt.sortmode == 2 && new_record_flag && !skip_kludge)
 		    goto next_sortrecord;
 		  skip_kludge = 0;
@@ -1113,8 +1114,8 @@ Process (const char *filename)
 			if (d->index == index)
 			  break;
 		      if (d && d->activ)
-			Err (0, "%s:%lu: warning: %s.%d redefined",
-			     filename, lineno, fname, index);
+			log_error (0, "%s:%lu: warning: %s.%d redefined",
+                                   filename, lineno, fname, index);
 		    }
 		  if (!d)
 		    { /* create a new slot */
@@ -1145,7 +1146,8 @@ Process (const char *filename)
 	      else
 		{
 		  if (fnameidx >= FIELDNAMELEN)
-		    Err (2, "%s:%ld: fieldname too long", filename, lineno);
+		    log_error (2, "%s:%ld: fieldname too long",
+                               filename, lineno);
 		  fname[fnameidx++] = c;
 		}
 	      break;
@@ -1160,11 +1162,11 @@ Process (const char *filename)
 	      for (; pending_lf; pending_lf--)
 		{
 		  if (d->used >= d->size)
-		    d = ExpandDataSlot (f, d);
+		    d = expand_data_slot (f, d);
 		  d->d[d->used++] = '\n';
 		}
 	      if (d->used >= d->size)
-		d = ExpandDataSlot (f, d);
+		d = expand_data_slot (f, d);
 	      d->d[d->used++] = c;
 	      break;
 	    } /* end switch state after first column */
@@ -1178,17 +1180,17 @@ Process (const char *filename)
     }
   if (!newline)
     {
-      Err (0, "%s: warning: last line not terminated by a LF", filename);
+      log_error (0, "%s: warning: last line not terminated by a LF", filename);
     }
   if (opt.sortmode == 2)
     goto next_sortrecord;
 
-ready:
-  FinishRecord ();
+ ready:
+  finish_record ();
   lineno--;
   if (opt.verbose)
-    Err (0, "%s: %lu line%s processed", filename, lineno,
-	 lineno == 1 ? "" : "s");
+    log_error (0, "%s: %lu line%s processed", filename, lineno,
+               lineno == 1 ? "" : "s");
 
   if (fp != stdin)
     fclose (fp);
@@ -1207,13 +1209,13 @@ ready:
  * Returns: a pointer to the field
  */
 static FIELD
-StoreFieldname (const char *fname, long offset)
+store_field_name (const char *fname, long offset)
 {
   unsigned long hash;
   NAMEBUCKET buck;
   FIELD fdes, f2;
 
-  for (buck = namebuckets[hash = HashName (fname)]; buck; buck = buck->next)
+  for (buck = namebuckets[hash = hash_name (fname)]; buck; buck = buck->next)
     if (!strcasecmp (buck->ptr->name, fname))
       {
 	fdes = buck->ptr;
@@ -1221,7 +1223,7 @@ StoreFieldname (const char *fname, long offset)
       }
 
   if (buck && fdes == fieldlist)
-    NewRecord (offset);
+    new_record (offset);
   else if (!buck)
     { /* A new fieldname.  */
       fdes = xcalloc (1, sizeof *fdes + strlen (fname));
@@ -1251,7 +1253,7 @@ StoreFieldname (const char *fname, long offset)
  * Replace the data slot DATA by an larger one.
  */
 static DATA
-ExpandDataSlot (FIELD field, DATA data)
+expand_data_slot (FIELD field, DATA data)
 {
   DATA d, d2;
 
@@ -1277,7 +1279,7 @@ ExpandDataSlot (FIELD field, DATA data)
 	if (d2->next == data)
 	  break;
       if (!d2)
-	abort (); /* ExpandDataSlot: data not linked to field.  */
+	abort (); /* Data not linked to field.  */
       d2->next = d;
     }
   data->next = unused_data;
@@ -1290,16 +1292,16 @@ ExpandDataSlot (FIELD field, DATA data)
  * Begin a new record after closing the last one.
  */
 static void
-NewRecord (long offset)
+new_record (long offset)
 {
-  FinishRecord ();
+  finish_record ();
   start_of_record = offset;
   new_record_flag = 1;
 }
 
 
 static FIELD
-GetFirstField ()
+get_first_field ()
 {
   FIELD f;
   OUTFIELD of;
@@ -1320,7 +1322,7 @@ GetFirstField ()
 }
 
 static FIELD
-GetNextField ()
+get_next_field ()
 {
   FIELD f;
   OUTFIELD of;
@@ -1347,7 +1349,7 @@ GetNextField ()
  * If we are in a record: close the current record.
  */
 static void
-FinishRecord ()
+finish_record ()
 {
   FIELD f;
   DATA d = NULL;
@@ -1382,11 +1384,11 @@ FinishRecord ()
 	}
       else if (opt.texfile)
 	{
-	  PrintTexFile (0);
+	  print_tex_file (0);
 	}
       else if (opt.format == 0)
 	{
-	  for (f = GetFirstField (); f; f = GetNextField ())
+	  for (f = get_first_field (); f; f = get_next_field ())
 	    {
 	      if (f->valid)
 		{
@@ -1434,7 +1436,7 @@ FinishRecord ()
 	}
       else if (opt.format == 1)
 	{
-	  for (f = GetFirstField (); f; f = GetNextField ())
+	  for (f = get_first_field (); f; f = get_next_field ())
 	    {
 	      if (f->valid)
 		{
@@ -1455,11 +1457,11 @@ FinishRecord ()
 	}
       else if (opt.format == 2)
 	{
-	  PrintFormat2 (0);
+	  print_format2 (0);
 	}
       else if (opt.format == 3)
 	{
-	  for (f = GetFirstField (); f; f = GetNextField ())
+	  for (f = get_first_field (); f; f = get_next_field ())
 	    {
 	      if (f->valid)
 		{
@@ -1493,7 +1495,7 @@ FinishRecord ()
 	}
       else if (opt.format == 4) /* ';' delimited */
 	{
-	  for (f = GetFirstField (); f; f = GetNextField ())
+	  for (f = get_first_field (); f; f = get_next_field ())
 	    {
 	      if (any)
 		putchar (';');
@@ -1536,7 +1538,7 @@ FinishRecord ()
 
 
 static void
-PrintFormat2 (int flushit)
+print_format2 (int flushit)
 {
   static int pending = 0;
   static int totlines = 0;
@@ -1565,7 +1567,7 @@ PrintFormat2 (int flushit)
 
   for (n = 0; !flushit && (name = names[n]); n++)
     {
-      for (buck = namebuckets[HashName (name)]; buck; buck = buck->next)
+      for (buck = namebuckets[hash_name (name)]; buck; buck = buck->next)
 	if (!strcasecmp (buck->ptr->name, name))
 	  {
 	    f = buck->ptr;
@@ -1607,7 +1609,7 @@ PrintFormat2 (int flushit)
 
 
 static void
-PrintTexFile (int flushit)
+print_tex_file (int flushit)
 {
   char pseudo_op[200];
   int c, pseudo_op_idx = 0;
@@ -1665,7 +1667,7 @@ PrintTexFile (int flushit)
 	    {
 	      pseudo_op[pseudo_op_idx - 1] = 0;
 	      state = 0;
-	      if (!flushit && ProcessTexOp (pseudo_op))
+	      if (!flushit && process_tex_op (pseudo_op))
 		return;
 	    }
 	  else
@@ -1693,7 +1695,7 @@ PrintTexFile (int flushit)
 
 
 static int
-ProcessTexOp (const char *op)
+process_tex_op (const char *op)
 {
   NAMEBUCKET buck;
   FIELD f;
@@ -1732,7 +1734,7 @@ ProcessTexOp (const char *op)
 	*p++ = 0; /* Strip modifier. */
 
       f = NULL;
-      for (buck = namebuckets[HashName (op)]; buck; buck = buck->next)
+      for (buck = namebuckets[hash_name (op)]; buck; buck = buck->next)
 	if (!strcasecmp (buck->ptr->name, op))
 	  {
 	    f = buck->ptr;
@@ -1769,7 +1771,7 @@ ProcessTexOp (const char *op)
  * Sort the sortlist
  */
 static void
-DoSort ()
+do_sort ()
 {
   size_t i, n;
   SORT s, *array;
@@ -1782,14 +1784,14 @@ DoSort ()
   for (n = 0, s = sortlist; s; s = s->next)
     array[n++] = s;
   array[n] = NULL;
-  qsort (array, n, sizeof *array, DoSortFnc);
+  qsort (array, n, sizeof *array, do_sort_fnc);
   sortlist = array[0];
   for (i = 0; i < n; i++)
     array[i]->next = array[i + 1];
 }
 
 static int
-DoSortFnc (const void *arg_a, const void *arg_b)
+do_sort_fnc (const void *arg_a, const void *arg_b)
 {
   SORT a = *(SORT *) arg_a;
   SORT b = *(SORT *) arg_b;
