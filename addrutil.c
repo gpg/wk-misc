@@ -226,7 +226,7 @@ static void set_opt_arg (ARGPARSE_ARGS * arg, unsigned flags, char *s);
 static void show_help (ARGPARSE_OPTS * opts, unsigned flags);
 static void show_version (void);
 
-static INLINE unsigned long HashName (const unsigned char *s);
+static INLINE unsigned long HashName (const char *s);
 static void HashInfos (void);
 static void Err (int rc, const char *s, ...);
 static void Process (const char *filename);
@@ -242,7 +242,7 @@ static int ProcessTexOp (const char *op);
 static void DoSort (void);
 static int DoSortFnc (const void *arg_a, const void *arg_b);
 
-const char *CopyRight (int level);
+static const char *CopyRight (int level);
 
 static void
 ShowCopyRight (int level)
@@ -276,7 +276,7 @@ ShowCopyRight (int level)
 }
 
 
-const char *
+static const char *
 CopyRight (int level)
 {
   const char *p;
@@ -845,8 +845,9 @@ pass_two:
 	{
 	  n = fprintf (fp, "%.20s:", f->name);
 	  for (d = f->data; d; d = d->next)
-	    fprintf (fp, "%*s idx=%-3d used=%-3d size=%-3d %s\n",
-		     d == f->data ? 0 : n, "", d->index, d->used, d->size,
+	    fprintf (fp, "%*s idx=%-3d used=%-3u size=%-3u %s\n",
+		     d == f->data ? 0 : n, "", d->index,
+                     (unsigned int)d->used, (unsigned int)d->size,
 		     d->activ ? "activ" : "not-active");
 	  if (!f->data)
 	    putc ('\n', fp);
@@ -857,10 +858,13 @@ pass_two:
   return 0;
 }
 
+
 static INLINE unsigned long
-HashName (const unsigned char *s)
+HashName (const char *s_arg)
 {
-  unsigned long hashVal = 0, carry;
+  const unsigned char *s = (const unsigned char*)s_arg;
+  unsigned long hashVal = 0;
+  unsigned long carry;
 
   if (s)
     for (; *s; s++)
@@ -875,6 +879,7 @@ HashName (const unsigned char *s)
 
   return hashVal % NO_NAMEBUCKETS;
 }
+
 
 static void
 HashInfos ()
@@ -922,7 +927,7 @@ Process (const char *filename)
   int newline;
   int comment = 0;
   int linewrn = 0;
-  unsigned char fname[FIELDNAMELEN + 1];
+  char fname[FIELDNAMELEN + 1];
   int fnameidx = 0;
   int index;			/* current index */
   enum
