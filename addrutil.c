@@ -1,5 +1,5 @@
 /* [addrutil.c wk 07.03.97] Tool to mess with address lists
- *	Copyright (c) 1997, 2003 Werner Koch (dd9jn)
+ *	Copyright (c) 1997, 2003, 2014 Werner Koch (dd9jn)
  *	Copyright (C) 2000 OpenIT GmbH
  *
  * This program is free software; you can redistribute it and/or modify
@@ -90,7 +90,14 @@ located in Bitburg/Eifel.
 To send this letter to all the folks from the addr.db you whould use these
 commands:
 
- $ addrutil -T letter.tex addr.db >a.tex && latex a.tex
+  addrutil -T letter.tex addr.db >a.tex && latex a.tex
+
+
+To convert regular CSV data into our record format you may use this:
+
+  addrutil --readcsv FILENAME
+
+Add any number of -F options to name the fields.
 
  */
 
@@ -112,6 +119,20 @@ commands:
 #endif
 
 
+typedef enum {
+  SELECT_SAME,
+  SELECT_NOTSAME,
+  SELECT_SUB,
+  SELECT_NOTSUB,
+  SELECT_EQ, /* Numerically equal.  */
+  SELECT_NE, /* Numerically not equal.  */
+  SELECT_LE,
+  SELECT_GE,
+  SELECT_LT,
+  SELECT_GT
+} select_op_t;
+
+
 typedef struct outfield_struct
 {
   struct outfield_struct *next;
@@ -119,15 +140,27 @@ typedef struct outfield_struct
 } *OUTFIELD;
 
 
+typedef struct selectexpr_struct
+{
+  struct selectexpr_struct *next;
+  select_op_t op;
+  const char *value;  /* Points into NAME.  */
+  long numvalue;
+  char name[1];
+} *SELECTEXPR;
+
+
 static struct
 {
   int verbose;
   int debug;
   int checkonly;
+  int readcsv;
   int format;
   const char *texfile;
   int sortmode;
   OUTFIELD outfields;
+  SELECTEXPR selectexpr;
 } opt;
 
 
@@ -230,6 +263,7 @@ static INLINE unsigned long hash_name (const char *s);
 static void dump_hash_infos (void);
 static void log_error (int rc, const char *s, ...);
 static void process (const char *filename);
+static void read_and_print_csv (const char *filename);
 static FIELD store_field_name (const char *fname, long offset);
 static DATA expand_data_slot (FIELD field, DATA data);
 static void new_record (long);
@@ -367,6 +401,32 @@ strip_trailing_ws (char *str)
 }
 
 
+/* Find string SUB in (BUFFER,BUFLEN).  */
+static const char *
+memstr (const void *buffer, size_t buflen, const char *sub)
+{
+  const char *buf = buffer;
+  const char *t = buf;
+  const char *s = sub;
+  size_t n = buflen;
+
+  for (; n; t++, n--)
+    {
+      if (*t == *s)
+        {
+          for (buf = t++, buflen = n--, s++; n && *t == *s; t++, s++, n--)
+            ;
+          if (!*s)
+            return buf;
+          t = buf;
+          s = sub ;
+          n = buflen;
+	}
+    }
+  return NULL;
+}
+
+
 
 static int
 arg_parse (ARGPARSE_ARGS * arg, ARGPARSE_OPTS * opts)
@@ -398,9 +458,9 @@ arg_parse (ARGPARSE_ARGS * arg, ARGPARSE_OPTS * opts)
        * is used. Another possibility ist, to autogenerate the help
        * from these descriptions. */
       if (arg->r_opt == -3)
-	s = PGMNAME ": missing argument for option \"%.50s\"";
+	s = PGMNAME ": missing argument for option \"%.50s\"\n";
       else
-	s = PGMNAME ": invalid option \"%.50s\"";
+	s = PGMNAME ": invalid option \"%.50s\"\n";
       fprintf (stderr, s, arg->internal.last ? arg->internal.last : "[??]");
       if (arg->err != 1)
 	exit (2);
@@ -720,6 +780,123 @@ show_version ()
   exit (0);
 }
 
+/* Supported expressions are:
+
+   [<ws>]NAME[<ws>]<op>[<ws>]VALUE[<ws>]
+
+   NAME and VALUE may not be the empty string. <ws> indicates white
+   space.  [] indicates optional parts.  If VALUE starts with one of
+   the characters used in any <op> a space after the <op> is required.
+   Valid <op> are:
+
+      =~  Substring must match
+      !~  Substring must not match
+      =   The full string must match
+      <>  The full string must not match
+      ==  The numerical value must match
+      !=  The numerical value must not match
+      <=  The numerical value of the field must be LE than the value.
+      <   The numerical value of the field must be LT than the value.
+      >=  The numerical value of the field must be GT than the value.
+      >=  The numerical value of the field must be GE than the value.
+
+      Numerical values are computed as long int.  */
+
+
+static SELECTEXPR
+parse_selectexpr (const char *expr)
+{
+  SELECTEXPR se;
+  const char *s0, *s;
+
+  while (*expr == ' ' || *expr == '\t')
+    expr++;
+
+  se = xmalloc (sizeof *se + strlen (expr));
+  se->next = NULL;
+  strcpy (se->name, expr);
+
+  s = strpbrk (expr, "=<>!~");
+  if (!s || s == expr )
+    log_error (1, "%s: no field name given for select\n", PGMNAME);
+  s0 = s;
+
+  if (!strncmp (s, "=~", 2))
+    {
+      se->op = SELECT_SUB;
+      s += 2;
+    }
+  else if (!strncmp (s, "!~", 2))
+    {
+      se->op = SELECT_NOTSUB;
+      s += 2;
+    }
+  else if (!strncmp (s, "<>", 2))
+    {
+      se->op = SELECT_NOTSAME;
+      s += 2;
+    }
+  else if (!strncmp (s, "==", 2))
+    {
+      se->op = SELECT_EQ;
+      s += 2;
+    }
+  else if (!strncmp (s, "!=", 2))
+    {
+      se->op = SELECT_NE;
+      s += 2;
+    }
+  else if (!strncmp (s, "<=", 2))
+    {
+      se->op = SELECT_LE;
+      s += 2;
+    }
+  else if (!strncmp (s, ">=", 2))
+    {
+      se->op = SELECT_GE;
+      s += 2;
+    }
+  else if (!strncmp (s, "<", 1))
+    {
+      se->op = SELECT_LT;
+      s += 1;
+    }
+  else if (!strncmp (s, ">", 1))
+    {
+      se->op = SELECT_GT;
+      s += 1;
+    }
+  else if (!strncmp (s, "=", 1))
+    {
+      se->op = SELECT_SAME;
+      s += 1;
+    }
+  else
+    log_error (1, "%s: invalid select operator\n", PGMNAME);
+
+  /* We require that a space is used if the value starts with any of
+     the operator characters.  */
+  if (strchr ("=<>!~", *s))
+    log_error (1, "%s: invalid select operator\n", PGMNAME);
+  while (*s == ' ' || *s == '\t')
+    s++;
+  if (!*s)
+    log_error (1, "%s: no value given for select\n", PGMNAME);
+
+  se->name[s0 - expr] = 0;
+  strip_trailing_ws (se->name);
+  if (!se->name[0])
+    log_error (1, "%s: no field name given for select\n", PGMNAME);
+
+  strip_trailing_ws (se->name + (s - expr));
+  se->value = se->name + (s - expr);
+  if (!se->value[0])
+    log_error (1, "%s: no value given for select\n", PGMNAME);
+
+  se->numvalue = strtol (se->value, NULL, 10);
+
+  return se;
+}
 
 
 int
@@ -728,9 +905,11 @@ main (int argc, char **argv)
   ARGPARSE_OPTS opts[] = {
     {'f', "format", 1, "use output format N"},
     {'s', "sort", 0, "sort the file"},
+    {'S', "select", 2, "output records matching expression" },
     {'F', "field", 2, "output this field"},
     {'T', "tex-file", 2, "use TeX file as template"},
     {'c', "check-only", 0, "do only a syntax check"},
+    { 501, "readcsv",   0, "read CSV data" },
     {'v', "verbose", 0, "verbose"},
     {'d', "debug", 0, "increase the debug level"},
     {0}
@@ -739,6 +918,7 @@ main (int argc, char **argv)
   int org_argc;
   char **org_argv;
   OUTFIELD of, of2;
+  SELECTEXPR se;
 
   while (arg_parse (&pargs, opts))
     {
@@ -775,10 +955,55 @@ main (int argc, char **argv)
 	      of2->next = of;
 	    }
 	  break;
+        case 501:
+          opt.readcsv = 1;
+          break;
+	case 'S':
+          se = parse_selectexpr (pargs.r.ret_str);
+          if (se)
+            {
+              se->next = opt.selectexpr;
+              opt.selectexpr = se;
+            }
+	  break;
 	default:
 	  pargs.err = 2;
 	  break;
 	}
+    }
+
+  if (opt.selectexpr && opt.debug)
+    {
+      FILE *fp = stderr;
+
+      fputs ("--- Begin selectors ---\n", fp);
+      for (se=opt.selectexpr; se; se = se->next)
+        fprintf (fp, "*(%s) %s '%s'\n",
+                 se->name,
+                 se->op == SELECT_SAME?    "= ":
+                 se->op == SELECT_NOTSAME? "<>":
+                 se->op == SELECT_SUB?     "=~":
+                 se->op == SELECT_NOTSUB?  "!~":
+                 se->op == SELECT_EQ?      "==":
+                 se->op == SELECT_NE?      "!=":
+                 se->op == SELECT_LT?      "< ":
+                 se->op == SELECT_LE?      "<=":
+                 se->op == SELECT_GT?      "> ":
+                 se->op == SELECT_GE?      ">=":"[oops]",
+                 se->value);
+      fputs ("--- End selectors ---\n", fp);
+    }
+
+  if (opt.readcsv)
+    {
+      if (!argc)
+        read_and_print_csv (NULL);
+      else
+        {
+          for (; argc; argc--, argv++)
+            read_and_print_csv (*argv);
+        }
+      exit (0);
     }
 
   if (opt.texfile)
@@ -810,6 +1035,7 @@ main (int argc, char **argv)
       for (; argc; argc--, argv++)
 	process (*argv);
     }
+
   if (opt.texfile)
     {
       if (tex.in_record_block && opt.sortmode != 1)
@@ -1197,6 +1423,146 @@ process (const char *filename)
 }
 
 
+static void
+read_and_print_csv (const char *filename)
+{
+  FILE *fp;
+  int c;
+  unsigned long lineno;
+  int newline, newfield, in_string, any_printed;
+  int fieldidx = 0;
+  OUTFIELD of;
+
+  if (filename)
+    {
+      fp = fopen (filename, "r");
+      if (!fp)
+	{
+	  fprintf (stderr, PGMNAME ": failed to open `%s': %s\n",
+		   filename, strerror (errno));
+	  exit (1);
+	}
+    }
+  else
+    {
+      fp = stdin;
+      filename = "[stdin]";
+    }
+
+  /* Read the file byte by byte; do not impose a limit on the line
+   * length.  Fieldnames are up to FIELDNAMELEN bytes long.  */
+  lineno  = 1;
+  newline = 1;
+  newfield = 0;
+  in_string = 0;
+  any_printed = 0;
+  of = NULL;
+  while ((c = getc (fp)) != EOF)
+    {
+      if (c == '\r')
+        continue;
+
+      if (c == '\n')  /* End of line.  */
+	{
+          putchar ('\n');
+          putchar ('\n');
+	  lineno++;
+	  newline = 1;
+          newfield = 0;
+          in_string = 0;
+          fieldidx = 0;
+	  continue;
+	}
+
+      if (newline) /* At a new record.  */
+        {
+	  newline = 0;
+          newfield = 1;
+          of = opt.outfields? opt.outfields : NULL;
+	}
+
+      if (newfield)
+        {
+          if (of)
+            printf ("%s:", of->name);
+          else
+            printf ("Field_%d:", fieldidx);
+          newfield = 0;
+          any_printed = 0;
+          in_string = 0;
+        }
+
+      if (in_string == 1)
+        {
+          if (c == '\"')
+            in_string = 2; /* Possible end of string.  */
+          else
+            {
+              if (!any_printed)
+                {
+                  any_printed = 1;
+                  putchar (' ');
+                }
+              putchar (c);
+            }
+        }
+      else if (in_string == 2)
+        {
+          if (c == '\"' )
+            {
+              putchar ('\"');
+              in_string = 1;
+            }
+          else
+            in_string = 0;
+        }
+
+      if (in_string)
+        ;
+      else if (c == '\"')
+        {
+          in_string = 1;
+        }
+      else if (c == ',')
+        {
+          putchar ('\n');
+          fieldidx++;
+          newfield = 1;
+          if (of)
+            of = of->next;
+        }
+      else
+        {
+          if (!any_printed)
+            {
+              any_printed = 1;
+              putchar (' ');
+            }
+          putchar (c);
+        }
+    }
+
+  if (ferror (fp))
+    {
+      fprintf (stderr, PGMNAME ":%s:%lu: read error: %s\n",
+	       filename, lineno, strerror (errno));
+      exit (2);
+    }
+  if (!newline)
+    {
+      log_error (0, "%s: warning: last line not terminated by a LF", filename);
+    }
+
+  lineno--;
+  if (opt.verbose)
+    log_error (0, "%s: %lu line%s processed", filename, lineno,
+               lineno == 1 ? "" : "s");
+
+  if (fp != stdin)
+    fclose (fp);
+}
+
+
 /*
  * Handle the fieldname.
  *
@@ -1345,6 +1711,93 @@ get_next_field ()
 }
 
 
+/* Return true if the record has been selected.  Note that the
+   selection currently considers only the first active line of a given
+   field.  */
+static int
+select_record_p (void)
+{
+  FIELD f;
+  SELECTEXPR se;
+  DATA d;
+  const char *value;
+  size_t selen, valuelen, n;
+  long numvalue;
+  int result = 1;
+
+  for (se=opt.selectexpr; se; se = se->next)
+    {
+      for (f = fieldlist; f; f = f->nextfield)
+        if (!strcmp (f->name, se->name))
+          break;
+      if (!f || !f->valid)
+        continue;
+      for (d = f->data; d; d = d->next)
+        if (d->activ)
+          break;
+      if (!d)
+        {
+          value = "";
+          valuelen = 0;
+          numvalue = 0;
+        }
+      else
+        {
+          char tmpbuf[25];
+          value = d->d;
+          valuelen = d->used;
+          n = valuelen;
+          if (n > sizeof tmpbuf - 1)
+            n = sizeof tmpbuf -1;
+          memcpy (tmpbuf, value, n);
+          tmpbuf[n] = 0;
+          numvalue = strtol (tmpbuf, NULL, 10);
+        }
+      selen = strlen (se->value);
+
+      switch (se->op)
+        {
+        case SELECT_SAME:
+          result = (valuelen == selen && !memcmp (value, se->value, selen));
+          break;
+        case SELECT_NOTSAME:
+          result = !(valuelen == selen && !memcmp (value, se->value, selen));
+          break;
+        case SELECT_SUB:
+          result = !!memstr (value, valuelen, se->value);
+          break;
+        case SELECT_NOTSUB:
+          result = !!memstr (value, valuelen, se->value);
+          break;
+        case SELECT_EQ:
+          result = (numvalue == se->numvalue);
+          break;
+        case SELECT_NE:
+          result = (numvalue != se->numvalue);
+          break;
+        case SELECT_GT:
+          result = (numvalue > se->numvalue);
+          break;
+        case SELECT_GE:
+          result = (numvalue >= se->numvalue);
+          break;
+        case SELECT_LT:
+          result = (numvalue < se->numvalue);
+          break;
+        case SELECT_LE:
+          result = (numvalue <= se->numvalue);
+          break;
+        }
+      if (!result)
+        break;
+    }
+
+  return result;
+}
+
+
+
+
 /*
  * If we are in a record: close the current record.
  */
@@ -1382,6 +1835,8 @@ finish_record ()
 	  sort->next = sortlist;
 	  sortlist = sort;
 	}
+      else if (opt.selectexpr && !select_record_p ())
+        ;
       else if (opt.texfile)
 	{
 	  print_tex_file (0);
