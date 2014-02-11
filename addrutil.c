@@ -1767,7 +1767,7 @@ select_record_p (void)
           result = !!memstr (value, valuelen, se->value);
           break;
         case SELECT_NOTSUB:
-          result = !!memstr (value, valuelen, se->value);
+          result = !memstr (value, valuelen, se->value);
           break;
         case SELECT_EQ:
           result = (numvalue == se->numvalue);
