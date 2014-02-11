@@ -46,8 +46,9 @@ Phone: 02222-33333
 
 ===========================================
 
-This tool may be used to insert the values into a TeX file.  Here is an
-example for such an TeX template:
+This tool may be used to insert the values into a text or TeX file.
+Here is an example for such an TeX template:
+
 == letter.tex ========
 \documentclass[a4paper]{letter}
 \usepackage[latin1]{inputenc}
@@ -57,7 +58,7 @@ example for such an TeX template:
 
 %% the next line contains a pseudo field which marks the
 %% start of a block which will be repeated for each record from the
-%% database.  You way want to view this as a "while (not-database); do"
+%% database.  You may want to view this as a "while (not-database); do"
 % @@begin-record-block@@
 
 \begin{letter}{
@@ -157,7 +158,8 @@ static struct
   int checkonly;
   int readcsv;
   int format;
-  const char *texfile;
+  int texfile;
+  const char *template;
   int sortmode;
   OUTFIELD outfields;
   SELECTEXPR selectexpr;
@@ -271,8 +273,8 @@ static FIELD get_first_field (void);
 static FIELD get_next_field (void);
 static void finish_record (void);
 static void print_format2 (int flush);
-static void print_tex_file (int);
-static int process_tex_op (const char *op);
+static void print_template (int);
+static int process_template_op (const char *op);
 static void do_sort (void);
 static int do_sort_fnc (const void *arg_a, const void *arg_b);
 
@@ -907,6 +909,7 @@ main (int argc, char **argv)
     {'s', "sort", 0, "sort the file"},
     {'S', "select", 2, "output records matching expression" },
     {'F', "field", 2, "output this field"},
+    {'t', "template", 2, "use text file as template"},
     {'T', "tex-file", 2, "use TeX file as template"},
     {'c', "check-only", 0, "do only a syntax check"},
     { 501, "readcsv",   0, "read CSV data" },
@@ -940,7 +943,9 @@ main (int argc, char **argv)
 	  opt.format = pargs.r.ret_int;
 	  break;
 	case 'T':
-	  opt.texfile = pargs.r.ret_str;
+          opt.texfile = 1;
+        case 't':
+	  opt.template = pargs.r.ret_str;
 	  break;
 	case 'F':
 	  of = xmalloc (sizeof *of + strlen (pargs.r.ret_str));
@@ -1006,13 +1011,13 @@ main (int argc, char **argv)
       exit (0);
     }
 
-  if (opt.texfile)
+  if (opt.template)
     {
-      tex.fp = fopen (opt.texfile, "r");
+      tex.fp = fopen (opt.template, "r");
       if (!tex.fp)
 	{
 	  fprintf (stderr, PGMNAME ": failed to open `%s': %s\n",
-		   opt.texfile, strerror (errno));
+		   opt.template, strerror (errno));
 	  exit (1);
 	}
     }
@@ -1036,11 +1041,11 @@ main (int argc, char **argv)
 	process (*argv);
     }
 
-  if (opt.texfile)
+  if (opt.template)
     {
       if (tex.in_record_block && opt.sortmode != 1)
 	{
-	  print_tex_file (1);
+	  print_template (1);
 	}
     }
   else if (opt.format == 2 && opt.sortmode != 1)
@@ -1837,9 +1842,9 @@ finish_record ()
 	}
       else if (opt.selectexpr && !select_record_p ())
         ;
-      else if (opt.texfile)
+      else if (opt.template)
 	{
-	  print_tex_file (0);
+	  print_template (0);
 	}
       else if (opt.format == 0)
 	{
@@ -2064,7 +2069,7 @@ print_format2 (int flushit)
 
 
 static void
-print_tex_file (int flushit)
+print_template (int flushit)
 {
   char pseudo_op[200];
   int c, pseudo_op_idx = 0;
@@ -2122,7 +2127,7 @@ print_tex_file (int flushit)
 	    {
 	      pseudo_op[pseudo_op_idx - 1] = 0;
 	      state = 0;
-	      if (!flushit && process_tex_op (pseudo_op))
+	      if (!flushit && process_template_op (pseudo_op))
 		return;
 	    }
 	  else
@@ -2137,12 +2142,12 @@ print_tex_file (int flushit)
     {
       if (ferror (tex.fp))
 	{
-	  fprintf (stderr, PGMNAME ":%s: read error\n", opt.texfile);
+	  fprintf (stderr, PGMNAME ":%s: read error\n", opt.template);
 	  exit (1);
 	}
       else if (state)
 	{
-	  fprintf (stderr, PGMNAME ":%s: unclosed pseudo-op\n", opt.texfile);
+	  fprintf (stderr, PGMNAME ":%s: unclosed pseudo-op\n", opt.template);
 	}
     }
 
@@ -2150,7 +2155,7 @@ print_tex_file (int flushit)
 
 
 static int
-process_tex_op (const char *op)
+process_template_op (const char *op)
 {
   NAMEBUCKET buck;
   FIELD f;
@@ -2200,7 +2205,7 @@ process_tex_op (const char *op)
 	  for (d = f->data; d; d = d->next)
 	    if (d->activ)
 	      {
-		printf ("%s", d->index > 1 ? "\\par " : "");
+		printf ("%s", d->index > 1 ? (opt.texfile?"\\par ":"\n\n"):"");
 		if (p && !strncmp (p, "N=", 2))
 		  {
 		    size_t n;
