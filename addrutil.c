@@ -98,7 +98,35 @@ To convert regular CSV data into our record format you may use this:
 
   addrutil --readcsv FILENAME
 
-Add any number of -F options to name the fields.
+Add any number of -F options to name the fields.  To select only
+unique records the -u option may be used.  Example:
+
+  addrutil -f3 -u Name DATA
+
+will output a new version of DATA where only the latest records with
+the same value in the Name field are included.  To select only the
+first record use
+
+  addrutil -f3 -u Name/r DATA
+
+
+The file may also be sorted on one field:
+
+  addrutil -f3 -s Name DATA
+
+this sorts the file on field Name.  If no argument to -s is given, the
+first encountered field is used.  To reverse the sort order use:
+
+  addrutil -f3 -s Name/r DATA
+
+To use a numeric sort use:
+
+  addrutil -f3 -s Name/n DATA
+
+Both flags may also be combined.  Currently sorting is only possible
+on one field; future versions of this tool may allow to add more than
+one field.  Sorting works only on a regular file and requires that the
+file does not change during an addrutil run.
 
  */
 
@@ -134,9 +162,13 @@ typedef enum {
 } select_op_t;
 
 
+#define SORTFLAG_REVERSE  1
+#define SORTFLAG_NUMERIC  2
+
 typedef struct outfield_struct
 {
   struct outfield_struct *next;
+  int flags;
   char name[1];
 } *OUTFIELD;
 
@@ -161,8 +193,10 @@ static struct
   int texfile;
   const char *template;
   int sortmode;
+  int uniqmode;
   OUTFIELD outfields;
   SELECTEXPR selectexpr;
+  OUTFIELD sortfields;
 } opt;
 
 
@@ -209,7 +243,7 @@ static FIELD fieldlist;		/* Description of the record. */
         			/* The first field ist the record marker.  */
 static FIELD next_field;	/* Used by GetFirst/NextField(). */
 static OUTFIELD next_outfield;
-static SORT sortlist;		/* Used when opt.sortmode activ.  */
+static SORT sortlist;		/* Used when sortmode or uniqmode is activ.*/
 static ulong output_count;
 static long start_of_record;	/* Fileoffset of the current record.  */
 static int new_record_flag;
@@ -277,6 +311,7 @@ static void print_template (int);
 static int process_template_op (const char *op);
 static void do_sort (void);
 static int do_sort_fnc (const void *arg_a, const void *arg_b);
+static void do_uniq (void);
 
 static const char *get_usage_str (int level);
 
@@ -901,12 +936,56 @@ parse_selectexpr (const char *expr)
 }
 
 
+static void
+add_sortfield (ARGPARSE_ARGS *pargs)
+{
+  OUTFIELD of, of2;
+  char *p;
+
+  if (pargs->r_type)
+    {
+      of = xmalloc (sizeof *of + strlen (pargs->r.ret_str));
+      of->next = NULL;
+      of->flags = 0;
+      strcpy (of->name, pargs->r.ret_str);
+      p = strchr (of->name, '/');
+      if (p)
+        {
+          *p++ = 0;
+          for (; *p; p++)
+            {
+              switch (*p)
+                {
+                case 'r': of->flags |= SORTFLAG_REVERSE; break;
+                case 'n': of->flags |= SORTFLAG_NUMERIC; break;
+                default:
+                  fprintf (stderr, PGMNAME
+                           ": warning: unknown sort flag in '%s'\n",
+                           pargs->r.ret_str);
+                  break;
+                }
+            }
+        }
+
+      if (!(of2 = opt.sortfields))
+        opt.sortfields = of;
+      else
+        {
+          for (; of2->next; of2 = of2->next)
+            ;
+          of2->next = of;
+        }
+    }
+}
+
+
 int
 main (int argc, char **argv)
 {
   ARGPARSE_OPTS opts[] = {
     {'f', "format", 1, "use output format N"},
-    {'s', "sort", 0, "sort the file"},
+    {'s', "sort", 2|8, "sort the file"}, /* Takes an optional argument.  */
+    {'u', "uniq", 2|8, "uniq the file"},
     {'S', "select", 2, "output records matching expression" },
     {'F', "field", 2, "output this field"},
     {'t', "template", 2, "use text file as template"},
@@ -938,6 +1017,11 @@ main (int argc, char **argv)
 	  break;
 	case 's':
 	  opt.sortmode = 1;
+          add_sortfield (&pargs);
+	  break;
+	case 'u':
+	  opt.uniqmode = 1;
+          add_sortfield (&pargs);
 	  break;
 	case 'f':
 	  opt.format = pargs.r.ret_int;
@@ -1022,12 +1106,29 @@ main (int argc, char **argv)
 	}
     }
 
-  if (opt.sortmode && argc != 1)
+  if (opt.sortmode && opt.uniqmode)
     {
       fprintf (stderr,
-	       PGMNAME ": sorry, sorting is only available for one file\n");
+	       PGMNAME ": --sort and --uniq may not be used together\n");
       exit (1);
     }
+  if ((opt.sortmode||opt.uniqmode) && argc != 1)
+    {
+      fprintf (stderr,
+	       PGMNAME ": sorry,"
+               " sort and uniq is only available for one file\n");
+      exit (1);
+    }
+
+  /* Print a warning if more than one sort field is given.  FIXME: We
+     should eventually lift that limit. */
+  if (opt.sortfields && opt.sortfields->next)
+    fprintf (stderr,
+             PGMNAME ": warning: only the first sort field is used\n");
+
+  /* For internal purposes we set the sortmode flag with uniqmode.  */
+  if (opt.uniqmode)
+    opt.sortmode = 1;
 
   org_argc = argc;
   org_argv = argv;
@@ -1053,7 +1154,10 @@ main (int argc, char **argv)
 
   if (opt.sortmode == 1 && sortlist)
     {
-      do_sort ();
+      if (opt.uniqmode)
+        do_uniq ();
+      else
+        do_sort ();
       argc = org_argc;
       argv = org_argv;
       opt.sortmode = 2;
@@ -1084,6 +1188,16 @@ main (int argc, char **argv)
 	    putc ('\n', fp);
 	}
       fputs ("--- End fieldlist ---\n", fp);
+      if (opt.sortmode)
+        {
+          fputs ("--- Begin sortlist ---\n", fp);
+          for (of = opt.sortfields; of; of = of->next)
+            fprintf (fp, "%.20s%s%s%s\n", of->name,
+                     of->flags? "/":"",
+                     (of->flags & SORTFLAG_REVERSE)? "r":"",
+                     (of->flags & SORTFLAG_NUMERIC)? "n":"");
+          fputs ("--- End sortlist ---\n", fp);
+	}
       dump_hash_infos ();
     }
   return 0;
@@ -1189,17 +1303,23 @@ process (const char *filename)
       filename = "[stdin]";
     }
 
-  if (opt.sortmode == 2)
+  if (opt.sortmode == 2)  /* Sorting/uniqing has been done. */
     {
       if (!sort)
-	return;			/* nothing to sort */
+	return;		  /* nothing to sort */
     next_sortrecord:
       if (!sort)
 	goto ready;
+      if (sort->offset == -1)
+        {
+          /* Skip deleted records.  */
+          sort = sort->next;
+          goto next_sortrecord;
+        }
       clearerr (fp);
       if (fseek (fp, sort->offset, SEEK_SET))
 	{
-	  fprintf (stderr, PGMNAME ": error seekung to %ld\n", sort->offset);
+	  fprintf (stderr, PGMNAME ": error seeking to %ld\n", sort->offset);
 	  exit (2);
 	}
       sort = sort->next;
@@ -1230,6 +1350,12 @@ process (const char *filename)
 	    }
 	  lineno++;
 	  lineoff = ftell (fp) - 1;
+          if (lineoff == -1 && opt.sortmode)
+            {
+	      log_error (2, "%s:%ld: ftell() failed: %s",
+                         filename, lineno, strerror (errno));
+              exit (1);
+            }
 	  newline = 1;
 	  comment = 0;
 	  linewrn = 0;
@@ -1573,9 +1699,9 @@ read_and_print_csv (const char *filename)
  *
  * If we already have a field with this name in the current record, we
  * append a counter to the field (e.g. "Phone.1", "Phone.2", ... )
- * where a counter of 1 is same as the filed without a
- * count. Filednames are NOT casesensitiv. index o means: calculate an
- * index if this is an unknown field.
+ * where a counter of 1 is same as the field without a count.  Field
+ * names are NOT case sensitive.  Index 0 means: Calculate an index if
+ * this is an unknown field.
  *
  * Returns: a pointer to the field
  */
@@ -1801,6 +1927,41 @@ select_record_p (void)
 }
 
 
+/* Return the field to be used for sorting.  Note that we currently
+   support only one sort field. */
+static FIELD
+find_sortfield (void)
+{
+  OUTFIELD sf;
+  FIELD f;
+
+  /* If no sortfield has been given use the first one.  */
+  if (!opt.sortfields)
+    {
+      for (f = fieldlist; f; f = f->nextfield)
+        if (f->valid)
+          {
+            sf = xmalloc (sizeof *sf + strlen (f->name));
+            sf->next = NULL;
+            sf->flags = 0;
+            strcpy (sf->name, f->name);
+            opt.sortfields = sf;
+            break;
+          }
+    }
+
+  sf = opt.sortfields;
+  if (!sf)
+    return NULL;
+
+  for (f = fieldlist; f; f = f->nextfield)
+    if (!strcmp (f->name, sf->name))
+      break;
+  if (f && f->valid)
+    return f;
+
+  return NULL; /* No such field.  */
+}
 
 
 /*
@@ -1822,21 +1983,25 @@ finish_record ()
       if (opt.sortmode == 1)
 	{ /* Store only.  */
 	  SORT sort;
+          const char *s;
 
-	  n = 0;
-	  for (f = fieldlist; f; f = f->nextfield)
-	    if (f->valid)
-	      for (d = f->data; d; d = d->next)
-		if (d->activ)
-		  {
-		    n = d->used;
-		    goto okay;
-		  }
-	okay:
+          n = 0;
+          s = ""; /* Default to the empty string.  */
+          f = find_sortfield ();
+          for (d = f?f->data:NULL; d; d = d->next)
+            {
+              if (d->activ)
+                {
+                  n = d->used;
+                  s = d->d;
+                  break;
+                }
+            }
+
 	  sort = xcalloc (1, sizeof *sort + n + 1);
 	  sort->offset = start_of_record;
-	  memcpy (sort->d, d->d, n);
-	  sort->d[n] = 0; /* Make it a string.  */
+	  memcpy (sort->d, s, n);
+	  sort->d[n] = 0; /* Make sure it is a string.  */
 	  sort->next = sortlist;
 	  sortlist = sort;
 	}
@@ -1850,6 +2015,8 @@ finish_record ()
 	{
 	  for (f = get_first_field (); f; f = get_next_field ())
 	    {
+              if (any)
+                putchar (':');
 	      if (f->valid)
 		{
 		  int need_tab = 0;
@@ -1862,8 +2029,8 @@ finish_record ()
 
 			  if (need_tab)
 			    putchar ('\t');
-			  else if (any)
-			    putchar (':');
+			  any = 1;
+			  need_tab = 1;
 			  for (i = 0, s = d->d; i < d->used; s++, i++)
 			    {
 			      if (*s == '%')
@@ -1877,22 +2044,12 @@ finish_record ()
 			      else
 				putchar (*s);
 			    }
-			  any = 1;
-			  need_tab = 1;
 			}
-		      else if (any && !need_tab)
-			putchar (':');
 		    }
 		}
-	      else
-		{
-		  if (any)
-		    putchar (':');
-		  else
-		    any++;
-		}
 	    }
-	  putchar ('\n');
+          if (any)
+            putchar ('\n');
 	}
       else if (opt.format == 1)
 	{
@@ -1963,22 +2120,24 @@ finish_record ()
 		{
 		  int any2 = 0;
 		  for (d = f->data; d; d = d->next)
-		    if (d->activ)
-		      {
-			if (any2)
-			  putchar ('|');
-			any = 1;
-			any2 = 1;
-			for (n = 0, p = d->d; n < d->used; n++, p++)
-			  {
-			    if (*p == '\n')
-			      putchar (' ');
-			    else if (*p == ';')
-			      putchar (',');
-			    else
-			      putchar (*p);
-			  }
-		      }
+                    {
+                      if (d->activ)
+                        {
+                          if (any2)
+                            putchar ('|');
+                          any = 1;
+                          any2 = 1;
+                          for (n = 0, p = d->d; n < d->used; n++, p++)
+                            {
+                              if (*p == '\n')
+                                putchar (' ');
+                              else if (*p == ';')
+                                putchar (',');
+                              else
+                                putchar (*p);
+                            }
+                        }
+                    }
 		}
 	    }
 	  if (any)
@@ -2227,6 +2386,47 @@ process_template_op (const char *op)
 }
 
 
+
+static int
+do_sort_fnc_num (const void *arg_a, const void *arg_b)
+{
+  double aval, bval;
+  SORT a = *(SORT *) arg_a;
+  SORT b = *(SORT *) arg_b;
+
+  aval = strtod (a->d, NULL);
+  bval = strtod (b->d, NULL);
+  return aval < bval? -1 : aval > bval? 1 : 0;
+}
+
+static int
+do_sort_fnc_numrev (const void *arg_a, const void *arg_b)
+{
+  double aval, bval;
+  SORT a = *(SORT *) arg_a;
+  SORT b = *(SORT *) arg_b;
+
+  aval = strtod (a->d, NULL);
+  bval = strtod (b->d, NULL);
+  return aval < bval? 1 : aval > bval? -1 : 0;
+}
+
+static int
+do_sort_fnc (const void *arg_a, const void *arg_b)
+{
+  SORT a = *(SORT *) arg_a;
+  SORT b = *(SORT *) arg_b;
+  return strcmp (a->d, b->d);
+}
+
+static int
+do_sort_fnc_rev (const void *arg_a, const void *arg_b)
+{
+  SORT a = *(SORT *) arg_a;
+  SORT b = *(SORT *) arg_b;
+  return strcmp (b->d, a->d);
+}
+
 /*
  * Sort the sortlist
  */
@@ -2235,6 +2435,8 @@ do_sort ()
 {
   size_t i, n;
   SORT s, *array;
+  int reverse = opt.sortfields? (opt.sortfields->flags & SORTFLAG_REVERSE) : 0;
+  int numeric = opt.sortfields? (opt.sortfields->flags & SORTFLAG_NUMERIC) : 0;
 
   for (n = 0, s = sortlist; s; s = s->next)
     n++;
@@ -2244,18 +2446,72 @@ do_sort ()
   for (n = 0, s = sortlist; s; s = s->next)
     array[n++] = s;
   array[n] = NULL;
-  qsort (array, n, sizeof *array, do_sort_fnc);
+  qsort (array, n, sizeof *array,
+         (numeric && reverse)? do_sort_fnc_numrev :
+         (numeric           )? do_sort_fnc_num :
+         (reverse           )? do_sort_fnc_rev :
+         /* */                 do_sort_fnc);
   sortlist = array[0];
   for (i = 0; i < n; i++)
     array[i]->next = array[i + 1];
 }
 
-static int
-do_sort_fnc (const void *arg_a, const void *arg_b)
+
+/*
+ * Uniq the sortlist.  Remove all identical records except for the
+ * last one (or the first if /r is used).
+ */
+static void
+do_uniq ()
 {
-  SORT a = *(SORT *) arg_a;
-  SORT b = *(SORT *) arg_b;
-  return strcmp (a->d, b->d);
+  size_t i, n;
+  SORT s, *array;
+  int reverse = opt.sortfields? (opt.sortfields->flags & SORTFLAG_REVERSE) : 0;
+
+  /* Allocate an array large enough to hold all items.  */
+  for (n = 0, s = sortlist; s; s = s->next)
+    n++;
+  if (!n)
+    return;
+  array = xmalloc ((n + 1) * sizeof *array);
+
+  /* Put all items into the array and mark the duplicates.  */
+  for (n = 0, s = sortlist; s; s = s->next)
+    {
+      if (reverse)
+        {
+          for (i=0; i < n; i++)
+            if (array[i]->offset != -1 && !strcmp (array[i]->d, s->d))
+              {
+                /* Same item found.  */
+                array[i]->offset = -1; /* Mark that as deleted.  */
+              }
+        }
+      else
+        {
+          for (i=0; i < n; i++)
+            if (array[i]->offset != -1 && !strcmp (array[i]->d, s->d))
+              {
+                /* We already have such an item.  */
+                s->offset = -1; /* Mark me as deleted.  */
+                break;
+              }
+        }
+
+      array[n++] = s;
+    }
+  array[n] = NULL;
+
+  /* Rebuild the sortlist.  Reverse it to keep the order of records.  */
+  if (!n)
+    sortlist = NULL;
+  else
+    {
+      sortlist = array[n-1];
+      for (i = n-1; i > 0; i--)
+        array[i]->next = array[i-1];
+      array[0]->next = NULL;
+    }
 }
 
 /*
