@@ -1001,6 +1001,7 @@ main (int argc, char **argv)
   char **org_argv;
   OUTFIELD of, of2;
   SELECTEXPR se;
+  FIELD f;
 
   while (arg_parse (&pargs, opts))
     {
@@ -1168,9 +1169,19 @@ main (int argc, char **argv)
       /* FIXME: cleanup the sort infos */
     }
 
+
+  for (se=opt.selectexpr; se; se = se->next)
+    {
+      for (f = fieldlist; f; f = f->nextfield)
+        if (!strcmp (f->name, se->name))
+          break;
+      if (!f)
+        fprintf (stderr, PGMNAME ": warning: "
+                 "select field '%s' not found in data\n", se->name);
+    }
+
   if (opt.debug)
     {
-      FIELD f;
       DATA d;
       FILE *fp = stderr;
       int n;
@@ -1862,62 +1873,78 @@ select_record_p (void)
         if (!strcmp (f->name, se->name))
           break;
       if (!f || !f->valid)
-        continue;
-      for (d = f->data; d; d = d->next)
-        if (d->activ)
-          break;
-      if (!d)
         {
-          value = "";
-          valuelen = 0;
-          numvalue = 0;
+          /* No such field.  */
+          switch (se->op)
+            {
+            case SELECT_NOTSAME:
+            case SELECT_NOTSUB:
+            case SELECT_NE:
+              result = 1;
+              break;
+            default:
+              result = 0;
+              break;
+            }
         }
       else
         {
-          char tmpbuf[25];
-          value = d->d;
-          valuelen = d->used;
-          n = valuelen;
-          if (n > sizeof tmpbuf - 1)
-            n = sizeof tmpbuf -1;
-          memcpy (tmpbuf, value, n);
-          tmpbuf[n] = 0;
-          numvalue = strtol (tmpbuf, NULL, 10);
-        }
-      selen = strlen (se->value);
+          for (d = f->data; d; d = d->next)
+            if (d->activ)
+              break;
+          if (!d)
+            {
+              value = "";
+              valuelen = 0;
+              numvalue = 0;
+            }
+          else
+            {
+              char tmpbuf[25];
+              value = d->d;
+              valuelen = d->used;
+              n = valuelen;
+              if (n > sizeof tmpbuf - 1)
+                n = sizeof tmpbuf -1;
+              memcpy (tmpbuf, value, n);
+              tmpbuf[n] = 0;
+              numvalue = strtol (tmpbuf, NULL, 10);
+            }
+          selen = strlen (se->value);
 
-      switch (se->op)
-        {
-        case SELECT_SAME:
-          result = (valuelen == selen && !memcmp (value, se->value, selen));
-          break;
-        case SELECT_NOTSAME:
-          result = !(valuelen == selen && !memcmp (value, se->value, selen));
-          break;
-        case SELECT_SUB:
-          result = !!memstr (value, valuelen, se->value);
-          break;
-        case SELECT_NOTSUB:
-          result = !memstr (value, valuelen, se->value);
-          break;
-        case SELECT_EQ:
-          result = (numvalue == se->numvalue);
-          break;
-        case SELECT_NE:
-          result = (numvalue != se->numvalue);
-          break;
-        case SELECT_GT:
-          result = (numvalue > se->numvalue);
-          break;
-        case SELECT_GE:
-          result = (numvalue >= se->numvalue);
-          break;
-        case SELECT_LT:
-          result = (numvalue < se->numvalue);
-          break;
-        case SELECT_LE:
-          result = (numvalue <= se->numvalue);
-          break;
+          switch (se->op)
+            {
+            case SELECT_SAME:
+              result = (valuelen == selen && !memcmp (value, se->value, selen));
+              break;
+            case SELECT_NOTSAME:
+              result = !(valuelen == selen && !memcmp (value, se->value,selen));
+              break;
+            case SELECT_SUB:
+              result = !!memstr (value, valuelen, se->value);
+              break;
+            case SELECT_NOTSUB:
+              result = !memstr (value, valuelen, se->value);
+              break;
+            case SELECT_EQ:
+              result = (numvalue == se->numvalue);
+              break;
+            case SELECT_NE:
+              result = (numvalue != se->numvalue);
+              break;
+            case SELECT_GT:
+              result = (numvalue > se->numvalue);
+              break;
+            case SELECT_GE:
+              result = (numvalue >= se->numvalue);
+              break;
+            case SELECT_LT:
+              result = (numvalue < se->numvalue);
+              break;
+            case SELECT_LE:
+              result = (numvalue <= se->numvalue);
+              break;
+            }
         }
       if (!result)
         break;
