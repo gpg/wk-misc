@@ -153,6 +153,8 @@ typedef enum {
   SELECT_NOTSAME,
   SELECT_SUB,
   SELECT_NOTSUB,
+  SELECT_EMPTY,
+  SELECT_NOTEMPTY,
   SELECT_EQ, /* Numerically equal.  */
   SELECT_NE, /* Numerically not equal.  */
   SELECT_LE,
@@ -836,6 +838,8 @@ show_version ()
       <   The numerical value of the field must be LT than the value.
       >=  The numerical value of the field must be GT than the value.
       >=  The numerical value of the field must be GE than the value.
+      -n  True if value is not empty.
+      -z  True if valie is empty.
 
       Numerical values are computed as long int.  */
 
@@ -853,7 +857,7 @@ parse_selectexpr (const char *expr)
   se->next = NULL;
   strcpy (se->name, expr);
 
-  s = strpbrk (expr, "=<>!~");
+  s = strpbrk (expr, "=<>!~-");
   if (!s || s == expr )
     log_error (1, "%s: no field name given for select\n", PGMNAME);
   s0 = s;
@@ -908,17 +912,39 @@ parse_selectexpr (const char *expr)
       se->op = SELECT_SAME;
       s += 1;
     }
+  else if (!strncmp (s, "-z", 2))
+    {
+      se->op = SELECT_EMPTY;
+      s += 2;
+    }
+  else if (!strncmp (s, "-n", 2))
+    {
+      se->op = SELECT_NOTEMPTY;
+      s += 2;
+    }
   else
     log_error (1, "%s: invalid select operator\n", PGMNAME);
 
   /* We require that a space is used if the value starts with any of
      the operator characters.  */
-  if (strchr ("=<>!~", *s))
+  if (se->op == SELECT_EMPTY || se->op == SELECT_NOTEMPTY)
+    ;
+  else if (strchr ("=<>!~", *s))
     log_error (1, "%s: invalid select operator\n", PGMNAME);
+
   while (*s == ' ' || *s == '\t')
     s++;
-  if (!*s)
-    log_error (1, "%s: no value given for select\n", PGMNAME);
+
+  if (se->op == SELECT_EMPTY || se->op == SELECT_NOTEMPTY)
+    {
+      if (*s)
+        log_error (1, "%s: value given for -n or -z\n", PGMNAME);
+    }
+  else
+    {
+      if (!*s)
+        log_error (1, "%s: no value given for select\n", PGMNAME);
+    }
 
   se->name[s0 - expr] = 0;
   strip_trailing_ws (se->name);
@@ -927,7 +953,7 @@ parse_selectexpr (const char *expr)
 
   strip_trailing_ws (se->name + (s - expr));
   se->value = se->name + (s - expr);
-  if (!se->value[0])
+  if (!se->value[0] && !(se->op == SELECT_EMPTY || se->op == SELECT_NOTEMPTY))
     log_error (1, "%s: no value given for select\n", PGMNAME);
 
   se->numvalue = strtol (se->value, NULL, 10);
@@ -1074,6 +1100,8 @@ main (int argc, char **argv)
                  se->op == SELECT_NOTSAME? "<>":
                  se->op == SELECT_SUB?     "=~":
                  se->op == SELECT_NOTSUB?  "!~":
+                 se->op == SELECT_EMPTY?   "-z":
+                 se->op == SELECT_NOTEMPTY?"-n":
                  se->op == SELECT_EQ?      "==":
                  se->op == SELECT_NE?      "!=":
                  se->op == SELECT_LT?      "< ":
@@ -1880,6 +1908,7 @@ select_record_p (void)
             case SELECT_NOTSAME:
             case SELECT_NOTSUB:
             case SELECT_NE:
+            case SELECT_EMPTY:
               result = 1;
               break;
             default:
@@ -1925,6 +1954,12 @@ select_record_p (void)
               break;
             case SELECT_NOTSUB:
               result = !memstr (value, valuelen, se->value);
+              break;
+            case SELECT_EMPTY:
+              result = !valuelen;
+              break;
+            case SELECT_NOTEMPTY:
+              result = !!valuelen;
               break;
             case SELECT_EQ:
               result = (numvalue == se->numvalue);
