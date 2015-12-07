@@ -88,7 +88,7 @@ located in Bitburg/Eifel.
 %% Sometimes is is useful to rewind the data files and use the data
 %% again for the same TeX template.  This can be accomplished by using
 %% @@next-record-rewind@@ instead of @@next-record@@ followed by a new
-%% @@begin-record-block@@.
+%% @@begin-record-block@@.  To print the record number use @@_recno@@.
 
 
 \end{document}
@@ -260,6 +260,7 @@ static struct
   FILE *fp;
   int in_record_block;
   int rewind_data;
+  int record_number;
   long begin_block;
   long end_block;
 } tex;
@@ -2410,6 +2411,7 @@ process_template_op (const char *op)
     {
       tex.in_record_block = 1;
       tex.rewind_data = 0;
+      tex.record_number = 0;
       tex.begin_block = ftell (tex.fp);
     }
   else if (!strcasecmp (op, "end-record-block"))
@@ -2426,6 +2428,7 @@ process_template_op (const char *op)
 	  exit (1);
 	}
       tex.rewind_data = 0;
+      tex.record_number++;
       return 1;
     }
   else if (!strcasecmp (op, "next-record-rewind") && tex.in_record_block)
@@ -2438,12 +2441,17 @@ process_template_op (const char *op)
 	  exit (1);
 	}
       tex.rewind_data = 1;
+      tex.record_number++;
       return 1;
     }
   else if (!tex.in_record_block)
     {
       fprintf (stderr,
 	       PGMNAME ": pseudo op '%s' not allowed in this context\n", op);
+    }
+  else if (!strcasecmp (op, "_recno"))
+    {
+      printf ("%d", tex.record_number);
     }
   else /* Take it as the key to the record data. */
     {
