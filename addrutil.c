@@ -85,6 +85,12 @@ located in Bitburg/Eifel.
 %% done statement for the above while.
 % @@next-record@@
 
+%% Sometimes is is useful to rewind the data files and use the data
+%% again for the same TeX template.  This can be accomplished by using
+%% @@next-record-rewind@@ instead of @@next-record@@ followed by a new
+%% @@begin-record-block@@.
+
+
 \end{document}
 ======================
 
@@ -138,7 +144,7 @@ file does not change during an addrutil run.
 #include <ctype.h>
 
 #define PGMNAME "addrutil"
-#define VERSION "0.71"
+#define VERSION "0.72"
 #define FIELDNAMELEN 40		/* max. length of a fieldname */
 
 #ifdef __GNUC__
@@ -253,6 +259,7 @@ static struct
 {
   FILE *fp;
   int in_record_block;
+  int rewind_data;
   long begin_block;
   long end_block;
 } tex;
@@ -1173,6 +1180,22 @@ main (int argc, char **argv)
 
   if (opt.template)
     {
+      if (tex.rewind_data && opt.sortmode != 1)
+        {
+          tex.rewind_data = 0;
+          if (tex.end_block)
+            {
+              if (fseek (tex.fp, tex.end_block, SEEK_SET))
+                {
+                  fprintf (stderr, PGMNAME ": error seeking to offset %ld\n",
+                           tex.end_block);
+                  exit (1);
+                }
+            }
+          argc = org_argc;
+          argv = org_argv;
+          goto pass_two;
+        }
       if (tex.in_record_block && opt.sortmode != 1)
 	{
 	  print_template (1);
@@ -1833,6 +1856,7 @@ new_record (long offset)
   finish_record ();
   start_of_record = offset;
   new_record_flag = 1;
+  tex.rewind_data = 0;
 }
 
 
@@ -2071,7 +2095,7 @@ finish_record ()
         ;
       else if (opt.template)
 	{
-	  print_template (0);
+          print_template (0);
 	}
       else if (opt.format == 0)
 	{
@@ -2385,6 +2409,7 @@ process_template_op (const char *op)
   if (!strcasecmp (op, "begin-record-block"))
     {
       tex.in_record_block = 1;
+      tex.rewind_data = 0;
       tex.begin_block = ftell (tex.fp);
     }
   else if (!strcasecmp (op, "end-record-block"))
@@ -2400,6 +2425,19 @@ process_template_op (const char *op)
 		   tex.begin_block);
 	  exit (1);
 	}
+      tex.rewind_data = 0;
+      return 1;
+    }
+  else if (!strcasecmp (op, "next-record-rewind") && tex.in_record_block)
+    {
+      tex.end_block = ftell (tex.fp);
+      if (fseek (tex.fp, tex.begin_block, SEEK_SET))
+	{
+	  fprintf (stderr, PGMNAME ": error seeking to offset %ld\n",
+		   tex.begin_block);
+	  exit (1);
+	}
+      tex.rewind_data = 1;
       return 1;
     }
   else if (!tex.in_record_block)
