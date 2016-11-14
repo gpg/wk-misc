@@ -15,7 +15,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-
+#define _GNU_SOURCE  /* We use asprintf */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,12 +30,46 @@
 #define PGM_VERSION   "0.1"
 #define PGM_BUGREPORT "wk@gnupg.org"
 
+#define DIM(v)		     (sizeof(v)/sizeof((v)[0]))
+#define DIMof(type,member)   DIM(((type *)0)->member)
+
 /* Option flags. */
 static int verbose;
 static int debug;
 
 /* Error counter.  */
 static int any_error;
+
+/* Current state of the system.  */
+struct state_s
+{
+  int day, hour, minute;
+  unsigned int mode;
+  unsigned int burner_on : 1;
+  unsigned int pump_on : 1;
+  unsigned int system_secs;
+  unsigned int burner_secs;
+
+  int target_dc;
+  int boiler_dc;
+  int outside_dc;
+};
+struct state_s last_state, current_state;
+
+/* Name of the file with the HTML status page.  */
+static char *status_page_fname;
+
+/* The time the burner has been started or stopped.  */
+static time_t burner_start_time, burner_stop_time;
+
+/* The time the burner is on or off.  */
+static unsigned int burner_on_secs, burner_off_secs;
+
+/* The temperature or the boiler when the burner started.  */
+static int boiler_dc_at_burner_start;
+
+/* The time the burner went ito alert state.  */
+static time_t burner_alert_time;
 
 
 /* Print diagnostic message and exit with failure. */
@@ -91,6 +125,44 @@ inf (const char *format, ...)
 }
 
 
+/* Split a string into colon delimited fields and remove leading and
+ * trailing spaces from each field.  A pointer to each field is stored
+ * in ARRAY.  Stop splitting at ARRAYSIZE fields.  The function
+ * modifies STRING.  The number of parsed fields is returned.
+ * Example:
+ *
+ *   char *fields[2];
+ *   if (split_fields (string, fields, DIM (fields)) < 2)
+ *     return ; // Not enough args.
+ *   foo (fields[0]);
+ *   foo (fields[1]);
+ */
+int
+split_fields (char *string, char **array, int arraysize)
+{
+  int n = 0;
+  char *p, *pend;
+
+  for (p = string; *p == ' '; p++)
+    ;
+  do
+    {
+      if (n == arraysize)
+        break;
+      array[n++] = p;
+      pend = strchr (p, ':');
+      if (!pend)
+        break;
+      *pend++ = 0;
+      for (p = pend; *p == ' '; p++)
+        ;
+    }
+  while (*p);
+
+  return n;
+}
+
+
 static FILE *
 open_line (void)
 {
@@ -126,6 +198,192 @@ open_line (void)
 }
 
 
+static const char *
+day_to_weekday (int d)
+{
+  switch (d)
+    {
+    case 0: return "Monday";
+    case 1: return "Tuesday";
+    case 2: return "Wednesday";
+    case 3: return "Thursday";
+    case 4: return "Firday";
+    case 5: return "Saturday";
+    case 6: return "Sunday";
+    default: return "?";
+    }
+}
+
+
+static void
+print_html_page (void)
+{
+  FILE *fp;
+
+  fp = fopen (status_page_fname, "w");
+  if (!fp)
+    {
+      err ("can't create '%s': %s", status_page_fname, strerror (errno));
+      return;
+    }
+  fputs ("<html>\n"
+         "<head>\n"
+         "<title>Heating system</title>\n"
+         " <meta http-equiv=\"Content-Type\""
+         " content=\"text/html;charset=utf-8\" />\n"
+         " <meta http-equiv=\"refresh\" content=\"10\" />\n"
+         "</head>\n"
+         "<body>\n", fp);
+
+  fprintf (fp, "<h1>%s %02d:%02d</h1>\n",
+           day_to_weekday (current_state.day),
+           current_state.hour,
+           current_state.minute);
+  fputs ("<table>\n", fp);
+  fprintf (fp, "<tr><td>Outside</td><td>%5.1f°C</td></tr>\n",
+           (float)current_state.outside_dc/10);
+  fprintf (fp, "<tr><td>Boiler</td><td>%5.1f°C</td></tr>\n",
+           (float)current_state.boiler_dc/10);
+  fprintf (fp, "<tr><td>Desired</td><td>%5.1f°C</td></tr>\n",
+           (float)current_state.target_dc/10);
+
+  if (current_state.burner_on)
+    fprintf (fp, "<tr><td>Burner</td><td>on (%u s)%s</td></tr>\n",
+             burner_on_secs, burner_alert_time? " <strong>Alert</strong>":"");
+  else
+    fprintf (fp, "<tr><td>Burner</td><td>off (%u s)</td></tr>\n",
+             burner_off_secs);
+
+
+  fprintf (fp, "<tr><td>Pump</td><td>%s</td></tr>\n",
+           current_state.pump_on? "on":"off");
+  fprintf (fp, "<tr><td>Mode</td><td>%s</td></tr>\n",
+           current_state.mode == 0 ? "Night" :
+           current_state.mode == 1 ? "Day" :
+           current_state.mode == 1 ? "Absent" : "Off");
+  fputs ("</table>\n", fp);
+
+  fputs ("<table>\n", fp);
+  fprintf (fp, "<tr><td>System running</td><td>%u:%02u</td></tr>\n",
+           current_state.system_secs / 3600,
+           (current_state.system_secs %3600 ) / 60);
+  fprintf (fp, "<tr><td>Burner firing</td><td>%u:%02u</td></tr>\n",
+           current_state.burner_secs / 3600,
+           (current_state.burner_secs % 3600) / 60);
+  fputs ("</table>\n", fp);
+
+  fputs ("</body>\n"
+         "</html>\n", fp);
+
+  fclose (fp);
+}
+
+
+/* Evaluate state and update html status page.  */
+static void
+evaluate_state (void)
+{
+  time_t now;
+
+  if (!memcmp (&last_state, &current_state, sizeof (current_state)))
+    return;  /* No change in state.  */
+
+  now = time (NULL);
+
+  if (!last_state.burner_on && current_state.burner_on)
+    {
+      burner_start_time = now;
+      boiler_dc_at_burner_start = current_state.boiler_dc;
+    }
+  else if (last_state.burner_on && !current_state.burner_on)
+    burner_stop_time = now;
+
+  if (current_state.burner_on)
+    {
+      burner_on_secs  = now - burner_start_time;
+      burner_off_secs = 0;
+      if (current_state.boiler_dc > boiler_dc_at_burner_start)
+        burner_alert_time = 0;
+      else if (burner_on_secs > 60
+          && current_state.boiler_dc < boiler_dc_at_burner_start)
+        burner_alert_time = now;
+    }
+  else
+    {
+      burner_on_secs = 0;
+      burner_off_secs = now - burner_stop_time;
+      burner_alert_time = 0;
+    }
+
+  print_html_page ();
+
+  /* Remember the state.  */
+  last_state = current_state;
+}
+
+
+
+/* This is the format of a status line:
+ *
+ * s:6:10:51:9291:1:1:1:1:::::19535:13001:
+ *   ^ ^  ^  ^    ^ ^ ^ ^     ^     ^
+ *   | |  |  |    | | | |     |     +- burner running in 2sec units.
+ *   | |  |  |    | | | |     +------- running time in 2 sec units.
+ *   | |  |  |    | | | +------------- circulation pump on
+ *   | |  |  |    | | +--------------- burner on
+ *   | |  |  |    | +----------------- group 1 selected
+ *   | |  |  |    +------------------- operation mode is 1
+ *   | |  |  +------------------------ minute of the week
+ *   | |  +--------------------------- minute
+ *   | +------------------------------ hour
+ *   +-------------------------------- weekday (0=monday)
+ */
+static void
+process_s_line (char *line)
+{
+  char *fields[15];
+
+  if (split_fields (line, fields, DIM (fields)) < 15)
+    return; /* Not enough fields.  */
+
+  current_state.day    = atoi (fields[1]);
+  current_state.hour   = atoi (fields[2]);
+  current_state.minute = atoi (fields[3]);
+  /* minute of the week */
+  current_state.mode   = atoi (fields[5]);
+  /* group */
+  current_state.burner_on   = !!atoi (fields[7]);
+  current_state.pump_on     = !!atoi (fields[8]);
+  current_state.system_secs = strtoul (fields[13], NULL, 10) * 2;
+  current_state.burner_secs = strtoul (fields[14], NULL, 10) * 2;
+}
+
+
+/* This is the format of a time line (deci-Celsius).  A time line
+ * follows a status line.
+ *
+ * t:592:625:68:::68:0:
+ *   ^   ^   ^    ^  ^
+ *   |   |   |    |  +--- outside temperature from sensor 1
+ *   |   |   |    +------ outside temperature from sensor 0
+ *   |   |   +----------- outside temperature (averaged)
+ *   |   +--------------- boiler temperature
+ *   +------------------- target temperature
+ */
+static void
+process_t_line (char *line)
+{
+  char *fields[4];
+
+  if (split_fields (line, fields, DIM (fields)) < 4)
+    return; /* Not enough fields.  */
+
+  current_state.target_dc = atoi (fields[1]);
+  current_state.boiler_dc = atoi (fields[2]);
+  current_state.outside_dc= atoi (fields[3]);
+}
+
+
 static void
 run_loop (FILE *fp)
 {
@@ -155,6 +413,7 @@ run_loop (FILE *fp)
 
       if (*line && line[1] == ':')
         {
+          /* Insert a timestamp line every minute.  */
           curtime = time (NULL);
           if (curtime >= lasttime + 60)
             {
@@ -162,10 +421,21 @@ run_loop (FILE *fp)
               printf ("$:%lu:\n", (unsigned long)curtime);
             }
 
+          /* Print the line top stdout.  */
           fputs (line, stdout);
           putchar ('\n');
+
+          /* Process the line.  */
+          if (*line == 's')
+            process_s_line (line);
+          else if (*line == 't')
+            {
+              process_t_line (line);
+              evaluate_state ();
+            }
+
         }
-      else
+      else /* Print an arbitrary message. */
         inf ("message: %s", line);
     }
 
@@ -196,6 +466,7 @@ main (int argc, char **argv)
 {
   int last_argc = -1;
   FILE *fp;
+  const char *s;
 
   if (argc)
     {
@@ -236,6 +507,14 @@ main (int argc, char **argv)
     show_usage (1);
 
   setvbuf (stdout, NULL, _IOLBF, 0);
+
+  s = getenv ("HOME");
+  if (!s)
+    die ("envvar HOME not set");
+  if (asprintf (&status_page_fname, "%s/public_html/heating.html", s) < 0)
+    die ("asprintf failed");
+
+  burner_start_time = burner_stop_time = time (NULL);
 
   fp = open_line ();
   run_loop (fp);
