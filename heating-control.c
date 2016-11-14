@@ -385,8 +385,8 @@ signed long avg_temperature;
 #define LED_NIGHT_BIT    (0)
 #define LED_ABSENT       (PORTB)
 #define LED_ABSENT_BIT   (1)
-#define RELAY_BOILER     (PORTB)
-#define RELAY_BOILER_BIT (2)
+#define RELAY_BURNER     (PORTB)
+#define RELAY_BURNER_BIT (2)
 #define RELAY_PUMP       (PORTB)
 #define RELAY_PUMP_BIT   (3)
 #define RELAY_LIT        (PORTB)
@@ -923,7 +923,7 @@ ISR (TIMER2_COMP_vect)
   if (++tim == 2000)
     {
       /* Two seconds passed.  */
-      if (bit_is_set (RELAY_BOILER, RELAY_BOILER_BIT))
+      if (bit_is_set (RELAY_BURNER, RELAY_BURNER_BIT))
         burner_time++;
       total_time++;
       tim = 0;
@@ -1865,18 +1865,18 @@ relay_control (void)
 
   if (boiler_temperature > boiler_temperature_target + BOILER_HYSTERESIS)
     {
-      if (bit_is_set (RELAY_BOILER, RELAY_BOILER_BIT))
+      if (bit_is_set (RELAY_BURNER, RELAY_BURNER_BIT))
         {
-          RELAY_BOILER &= ~_BV(RELAY_BOILER_BIT);
+          RELAY_BURNER &= ~_BV(RELAY_BURNER_BIT);
           if (actionflags.monitor_mode)
             actionflags3.status_change = 1;
         }
     }
   else if (boiler_temperature < boiler_temperature_target - BOILER_HYSTERESIS)
     {
-      if (bit_is_clear (RELAY_BOILER, RELAY_BOILER_BIT))
+      if (bit_is_clear (RELAY_BURNER, RELAY_BURNER_BIT))
         {
-          RELAY_BOILER |= _BV(RELAY_BOILER_BIT);
+          RELAY_BURNER |= _BV(RELAY_BURNER_BIT);
           if (actionflags.monitor_mode)
             actionflags3.status_change = 1;
         }
@@ -2158,7 +2158,7 @@ main (void)
      PINB.5  = MOSI
      PORTB.4 = RELAY_LIT
      PORTB.3 = RELAY_PUMP
-     PORTB.2 = RELAY_BOILER
+     PORTB.2 = RELAY_BURNER
      PORTB.1 = LED_ABSENT
      PORTB.0 = LED_NIGHT
   */
@@ -2363,7 +2363,7 @@ main (void)
          uart_putc (':');
          uart_putc (get_shift_offset ()?'1':'0');
          uart_putc (':');
-         uart_putc ((RELAY_BOILER & _BV (RELAY_BOILER_BIT))?'1':'0');
+         uart_putc ((RELAY_BURNER & _BV (RELAY_BURNER_BIT))?'1':'0');
          uart_putc (':');
          uart_putc ((RELAY_PUMP & _BV (RELAY_PUMP_BIT))?'1':'0');
          uart_putc (':');
