@@ -17,8 +17,9 @@
  * 2010-09-02 wk  Changed to GPLv3.
  *                Fixed detection of write errors.  Reported by Marcus
  *                Brinkmann
- * 2011-02-24 wk  Allow for 0x an \x prefixes.  Print offset with
+ * 2011-02-24 wk  Allow for 0x and \x prefixes.  Print offset with
  *                the error messages.
+ * 2019-03-20 wk  Allow for trailing backslashes.
  */
 
 #include <stdio.h>
@@ -63,6 +64,33 @@ main (int argc, char **argv )
           /* Assume the hex digits are prefixed with \x.  */
           c1 = getchar ();
           off++;
+          if (c1 == '\n')
+            {
+              /* But this is a trailing backslash - skip.  */
+              lnr++;
+              continue;
+            }
+          if (ascii_isspace (c1))
+            {
+              /* backslash followed by space - see whether this
+               * can also be considered as a trailing backslash.  */
+              while ((c1 = getchar ()) != EOF && ++off && c1 != '\n')
+                {
+                  if (!ascii_isspace (c1))
+                    {
+                      fprintf (stderr, "undump: spurious backslash "
+                               "at line %lu, off %lu\n", lnr, off);
+                      return 1;
+                    }
+                }
+              if (c1 == '\n')
+                {
+                  lnr++;
+                  continue;
+                }
+              /* EOF */
+              break;
+            }
           if (c1 != EOF)
             {
               c2 = getchar ();
