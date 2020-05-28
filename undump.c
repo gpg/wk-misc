@@ -20,6 +20,17 @@
  * 2011-02-24 wk  Allow for 0x and \x prefixes.  Print offset with
  *                the error messages.
  * 2019-03-20 wk  Allow for trailing backslashes.
+ * 2020-05-28 wk  gpg-connect-agent dump mode detection
+ */
+
+/* Special features:
+ * - \xHH is detected and converted.
+ * - 0xHH is detected and converted.
+ * - A trailing backslash is ignored as used by Libgcrypt logging.
+ * - The line format
+ *    "D[<any>]<up_to_3_spaces><hex_dump><3_spaces_or_more><rest>"
+ *   is detected and only the <hex_dump> part is converted.  This
+ *   is the format gpg-connect-agent uses in /hex mode.
  */
 
 #include <stdio.h>
@@ -40,6 +51,7 @@ int
 main (int argc, char **argv )
 {
   int c1, c2;
+  int last_lf, in_offset, dump_mode, skip_to_eol;
   unsigned int value;
   unsigned long lnr, off;
 
@@ -50,15 +62,64 @@ main (int argc, char **argv )
     }
 
 
+  last_lf = 1;
+  in_offset = 0;
+  dump_mode = 0;
+  skip_to_eol = 0;
   lnr = 1;
   off = 0;
   while ( (c1=getchar ()) != EOF )
     {
       off++;
       if (c1 == '\n')
-        lnr++;
+        {
+          lnr++;
+          last_lf = 1;
+          in_offset = 0;
+          dump_mode = 0;
+          skip_to_eol = 0;
+          continue;
+        }
+      if (skip_to_eol)
+        continue;
+      if (last_lf)
+        {
+          last_lf = 0;
+          if (c1 == 'D')
+            {
+              c2 = getchar ();
+              if (c2 == '[')
+                {
+                  in_offset = 1;
+                  dump_mode = 1;
+                  continue;
+                }
+              ungetc (c2, stdin);
+            }
+        }
+
+      if (in_offset)
+        {
+          if (c1 == ']' || c1 == '\n')
+            in_offset = 0;
+          continue;
+        }
+
+      if (dump_mode)
+        {
+          if (c1 == ' ')
+            dump_mode++;
+          else
+            dump_mode = 1;
+
+          if (dump_mode > 3)  /* 3 spaces seen */
+            skip_to_eol = 1;
+        }
+
+
       if (ascii_isspace (c1))
         continue;
+
       if (c1 == '\\')
         {
           /* Assume the hex digits are prefixed with \x.  */
