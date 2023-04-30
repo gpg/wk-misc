@@ -35,6 +35,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define digitp(p)   ((p) >= '0' && (p) <= '9')
 #define hexdigitp(a) (digitp (a)                     \
@@ -54,10 +55,14 @@ main (int argc, char **argv )
   int last_lf, in_offset, dump_mode, skip_to_eol;
   unsigned int value;
   unsigned long lnr, off;
+  int reformat = 0;
+  unsigned long addr = 0;
 
-  if ( argc > 1 )
+  if (argc == 2 && !strcmp (argv[1], "-r"))
+    reformat = 1;
+  else if ( argc > 1 )
     {
-      fprintf (stderr, "usage: undump < input\n");
+      fprintf (stderr, "usage: undump [-r] < input\n");
       return 1;
     }
 
@@ -139,6 +144,8 @@ main (int argc, char **argv )
                 {
                   if (!ascii_isspace (c1))
                     {
+                      if (addr && reformat)
+                        putchar('\n');
                       fprintf (stderr, "undump: spurious backslash "
                                "at line %lu, off %lu\n", lnr, off);
                       return 1;
@@ -159,6 +166,8 @@ main (int argc, char **argv )
             }
           if (c1 != 'x' || c2 == EOF)
             {
+              if (addr && reformat)
+                putchar('\n');
               fprintf (stderr, "undump: incomplete \\x "
                        "prefix at line %lu, off %lu\n", lnr, off);
               return 1;
@@ -167,6 +176,8 @@ main (int argc, char **argv )
         }
       if (!hexdigitp (c1))
         {
+          if (addr && reformat)
+            putchar('\n');
           fprintf (stderr,
                    "undump: non hex-digit encountered at line %lu, off %lu\n",
                    lnr, off);
@@ -174,6 +185,8 @@ main (int argc, char **argv )
         }
       if ( (c2=getchar ()) == EOF )
         {
+          if (addr && reformat)
+            putchar('\n');
           fprintf (stderr,
                    "undump: error reading second nibble at line %lu, off %lu\n",
                    lnr, off);
@@ -196,6 +209,8 @@ main (int argc, char **argv )
                 }
               if (c1 == EOF || c2 == EOF || !hexdigitp (c1) || !hexdigitp (c2))
                 {
+                  if (addr && reformat)
+                    putchar('\n');
                   fprintf (stderr, "undump: incomplete 0x "
                            "prefix at line %lu, off %lu\n", lnr, off);
                   return 1;
@@ -203,14 +218,32 @@ main (int argc, char **argv )
             }
           else
             {
+              if (addr && reformat)
+                putchar('\n');
               fprintf (stderr, "undump: second nibble is not a hex-digit"
                        " at line %lu, off %lu\n", lnr, off);
               return 1;
             }
         }
       value = xtoi_1 (c1) * 16 + xtoi_1 (c2);
-      putchar (value);
+      if (reformat)
+        {
+          if (!(addr%16))
+            {
+              if (addr)
+                putchar('\n');
+              printf ("%08lx ", addr);
+            }
+          printf (" %02x", value);
+          addr++;
+        }
+      else
+        putchar (value);
     }
+
+  if (addr && reformat)
+    putchar('\n');
+
   if (ferror (stdin))
     {
       fprintf (stderr, "undump: read error at line %lu, off %lu\n", lnr, off);
