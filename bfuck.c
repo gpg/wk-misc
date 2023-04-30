@@ -1,4 +1,4 @@
-/* bfuck.c - brainfunck interpreter
+/* bfuck.c - brainfuck interpreter
  * Copyright (C) 2022 Werner Koch
  *
  * This program is free software; you can redistribute it and/or
@@ -13,6 +13,9 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * For sample programs see:
+ * https://git.gnupg.org/cgi-bin/gitweb.cgi?p=wk-misc.git;a=tree;f=data
  */
 
 
