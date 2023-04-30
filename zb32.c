@@ -152,7 +152,7 @@ main (int argc, char **argv )
 
   if (i)
     {
-      output = zb32_encode (buffer, 8 * i);
+      output = zb32_encode (buffer, 8 * i - 2);
       if (!output)
         {
           fprintf (stderr, PGM ": error converting data: %s\n",
@@ -160,7 +160,6 @@ main (int argc, char **argv )
           return 1;
         }
       fputs (output, stdout);
-      free (output);
     }
 
   putchar ('\n');
