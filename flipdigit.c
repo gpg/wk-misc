@@ -95,6 +95,9 @@ static int rs485_fd;
 static int gpio_fd;
 #endif
 
+/* if true the daemon will exit. */
+static int shutdown_pending;
+
 /* If set to true, the default clock will be displayed.  */
 static int enable_clock;
 static int suppress_seconds;
@@ -102,6 +105,8 @@ static int suppress_seconds;
 /* The last string shown on the display - basically the current
  * thing.  (malloced) */
 static char *last_displayed_string;
+/* The current glyphs in 7segment coding.  */
+static unsigned char current_glyphs[7*4];
 
 
 static unsigned char digit_map[10] =
@@ -161,6 +166,17 @@ static struct {
    { '\\',0b00010011 },
    { 0, 0 }
   };
+
+
+struct private_membuf_s
+{
+  size_t len;
+  size_t size;
+  char *buf;
+  int out_of_core;
+};
+
+typedef struct private_membuf_s membuf_t;
 
 
 static void die (const char *format, ...) ATTR_NR_PRINTF(1,2);
@@ -341,6 +357,73 @@ xstrconcat (const char *s1, ...)
       va_end (arg_ptr);
     }
   return result;
+}
+
+/* A simple implementation of a dynamic buffer.  Use init_membuf() to
+ * create a buffer, put_membuf to append bytes and get_membuf to
+ * release and return the buffer.  Allocation errors are detected but
+ * only returned at the final get_membuf(), this helps not to clutter
+ * the code with out of core checks.  */
+void
+init_membuf (membuf_t *mb, int initiallen)
+{
+  mb->len = 0;
+  mb->size = initiallen;
+  mb->out_of_core = 0;
+  mb->buf = malloc (initiallen);
+  if (!mb->buf)
+    mb->out_of_core = errno;
+}
+
+void
+put_membuf (membuf_t *mb, const void *buf, size_t len)
+{
+  if (mb->out_of_core || !len)
+    return;
+
+  if (mb->len + len >= mb->size)
+    {
+      char *p;
+
+      mb->size += len + 1024;
+      p = realloc (mb->buf, mb->size);
+      if (!p)
+        {
+          mb->out_of_core = errno ? errno : ENOMEM;
+          return;
+        }
+      mb->buf = p;
+    }
+  if (buf)
+    memcpy (mb->buf + mb->len, buf, len);
+  else
+    memset (mb->buf + mb->len, 0, len);
+  mb->len += len;
+}
+
+
+void *
+get_membuf (membuf_t *mb, size_t *len)
+{
+  char *p;
+
+  if (mb->out_of_core)
+    {
+      if (mb->buf)
+        {
+          free (mb->buf);
+          mb->buf = NULL;
+        }
+      errno = mb->out_of_core;
+      return NULL;
+    }
+
+  p = mb->buf;
+  if (len)
+    *len = mb->len;
+  mb->buf = NULL;
+  mb->out_of_core = ENOMEM; /* hack to make sure it won't get reused. */
+  return p;
 }
 
 
@@ -534,6 +617,11 @@ jabber_message_handler (xmpp_conn_t * const conn, xmpp_stanza_t * const stanza,
 
       xmpp_free (ctx, body);
       xmpp_free (ctx, subject);
+      if (shutdown_pending)
+        {
+          inf ("requesting disconnect\n");
+          xmpp_disconnect (conn);
+        }
     }
 
   return 1; /* Keep this handler.  */
@@ -563,14 +651,12 @@ jabber_conn_handler (xmpp_conn_t * const conn, const xmpp_conn_event_t status,
       pres = xmpp_presence_new (ctx);
       xmpp_send (conn, pres);
       xmpp_stanza_release (pres);
-
-      /* inf ("requesting disconnect\n"); */
-      /* xmpp_disconnect (conn); */
     }
   else
     {
       inf ("disconnected\n");
-      xmpp_stop(ctx);
+      xmpp_stop (ctx);
+      shutdown_pending = 2;
     }
 }
 #endif /*ENABLE_JABBER*/
@@ -818,6 +904,9 @@ show_string (const char *string)
         }
     }
   send_data (0x83, data, sizeof data);
+  /* Now keep a copy.  */
+  assert (sizeof current_glyphs == sizeof data);
+  memcpy (current_glyphs, data, sizeof data);
   inf ("displaying '%s'", string);
   free (last_displayed_string);
   if (string)
@@ -856,7 +945,7 @@ run_loop (void)
   time_t atime;
   char textbuf[100];
 
-  for (;;)
+  while (shutdown_pending != 2)
     {
       atime = time (NULL);
       if (atime > lastatime && enable_clock)
@@ -895,6 +984,7 @@ run_loop (void)
 static char *
 cmd_read (char *args)
 {
+  (void)args;
   return strdup (last_displayed_string?last_displayed_string:"[empty]");
 }
 
@@ -906,6 +996,7 @@ cmd_write (char *args)
   show_string (args);
   return NULL;
 }
+
 
 static char *
 cmd_echo (char *args)
@@ -935,6 +1026,72 @@ cmd_clock (char *args)
 }
 
 
+/* Show the flip digit display as ascii art.
+ * col:  0     1     2     3     4     5     6
+ * idx:  012345012345012345012345012345012345012345
+ *     0  --    --    --    --    --    --    --
+ *     1 |  |  |  |  |  |  |  |  |  |  |  |  |  |
+ *     2  --    --    --    --    --    --    --
+ *     3 |  |  |  |  |  |  |  |  |  |  |  |  |  |
+ *     4  --    --    --    --    --    --    --
+ * followed  by empty line and the repeated 3 times.
+ */
+static char *
+cmd_show (char *args)
+{
+  char lines[5][7*6];  /* We need 5 lines per row.  */
+  int row, col, i;
+  unsigned char glyph;
+  membuf_t mb;
+
+  (void)args;
+
+  init_membuf (&mb, 0);
+  put_membuf (&mb, "```\n", 4);
+  for (row=0; row < 4; row++)
+    {
+      if (row)
+        put_membuf (&mb, "\n", 1);  /* An empty line.  */
+      memset (lines, ' ', sizeof lines);
+      for (col=0; col < 7; col++)
+        {
+          glyph = current_glyphs[7*row + col];
+          if ((glyph & 0b01000000))
+            lines[0][col*6+1] = '-', lines[0][col*6+2] = '-';
+          if ((glyph & 0b00100000))
+            lines[1][col*6+3] = '|';
+          if ((glyph & 0b00010000))
+            lines[3][col*6+3] = '|';
+          if ((glyph & 0b00001000))
+            lines[4][col*6+1] = '-', lines[4][col*6+2] = '-';
+          if ((glyph & 0b00000100))
+            lines[3][col*6+0] = '|';
+          if ((glyph & 0b00000010))
+            lines[1][col*6+0] = '|';
+          if ((glyph & 0b00000001))
+            lines[2][col*6+1] = '-', lines[2][col*6+2] = '-';
+        }
+      for (i=0; i < 5; i++)
+        {
+          inf ("lines[%d]='%.*s'", i, 7*6, lines[i]);
+          put_membuf (&mb, lines[i], 7*6);
+          put_membuf (&mb, "\n", 1);
+        }
+    }
+  put_membuf (&mb, "```", 4);
+
+  return get_membuf (&mb, NULL);
+}
+
+static char *
+cmd_shutdown (char *args)
+{
+  (void)args;
+  shutdown_pending = 1;
+  return strdup (PGM " shutdown in progress");
+}
+
+
 static char *
 cmd_help (char *args)
 {
@@ -948,11 +1105,11 @@ cmd_help (char *args)
                     "               OPT is \"off\"   - disable clock\n"
                     "               OPT is \"sec\"   - enable seconds\n"
                     "               OPT is \"nosec\" - disable seconds\n"
-                    "               No OPT toggles the clock display",
-                    "\n```", NULL
+                    "               No OPT toggles the clock display\n",
+                    "/show          Show the display in ascii art\n",
+                    "```", NULL
                     );
 }
-
 
 
 /* Handle a command.  The function may modify CMD.  The returned value
@@ -969,7 +1126,9 @@ handle_cmd (char *cmd)
     { "write",  cmd_write },
     { "echo",   cmd_echo },
     { "clock",  cmd_clock },
-    { "help",   cmd_help },
+    { "show",   cmd_show },
+    { "shutdown", cmd_shutdown },
+    { "help",     cmd_help },
     { NULL, NULL }
   };
   char dummyargs[1] = { 0 };
