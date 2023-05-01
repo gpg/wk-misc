@@ -167,6 +167,7 @@ static void die (const char *format, ...) ATTR_NR_PRINTF(1,2);
 static void err (const char *format, ...) ATTR_PRINTF(1,2);
 static void inf (const char *format, ...) ATTR_PRINTF(1,2);
 static void dbg (const char *format, ...) ATTR_PRINTF(1,2);
+static char *strconcat (const char *s1, ...) ATTR_SENTINEL(0);
 static char *xstrconcat (const char *s1, ...) ATTR_SENTINEL(0);
 static char *handle_cmd (char *cmd);
 
@@ -277,9 +278,9 @@ xstrdup (const char *string)
 }
 
 
-/* Helper for xstrconcat.  */
+/* Helper for xstrconcat and strconcat.  */
 static char *
-do_strconcat (const char *s1, va_list arg_ptr)
+do_strconcat (int xmode, const char *s1, va_list arg_ptr)
 {
   const char *argv[48];
   size_t argc;
@@ -297,7 +298,7 @@ do_strconcat (const char *s1, va_list arg_ptr)
       argc++;
     }
   needed++;
-  buffer = xmalloc (needed);
+  buffer = xmode? xmalloc (needed) : malloc (needed);
   for (p = buffer, argc=0; argv[argc]; argc++)
     p = stpcpy (p, argv[argc]);
 
@@ -309,6 +310,23 @@ do_strconcat (const char *s1, va_list arg_ptr)
    NULL.  Returns a malloced buffer with the new string or NULL on a
    malloc error or if too many arguments are given.  */
 static char *
+strconcat (const char *s1, ...)
+{
+  va_list arg_ptr;
+  char *result;
+
+  if (!s1)
+    result = strdup ("");
+  else
+    {
+      va_start (arg_ptr, s1);
+      result = do_strconcat (0, s1, arg_ptr);
+      va_end (arg_ptr);
+    }
+  return result;
+}
+
+static char *
 xstrconcat (const char *s1, ...)
 {
   va_list arg_ptr;
@@ -319,7 +337,7 @@ xstrconcat (const char *s1, ...)
   else
     {
       va_start (arg_ptr, s1);
-      result = do_strconcat (s1, arg_ptr);
+      result = do_strconcat (1, s1, arg_ptr);
       va_end (arg_ptr);
     }
   return result;
@@ -889,6 +907,12 @@ cmd_write (char *args)
   return NULL;
 }
 
+static char *
+cmd_echo (char *args)
+{
+  return strdup (args);
+}
+
 
 static char *
 cmd_clock (char *args)
@@ -915,16 +939,18 @@ static char *
 cmd_help (char *args)
 {
   (void)args;
-  return strdup ("/read          Show the current display\n"
-                 "/write STRING  Show STRING on the display and\n"
-                 "               disable the clock\n"
-                 "/clock [OPT]   Control the clock display:\n"
-                 "               OPT is \"on\"    - enable clock\n"
-                 "               OPT is \"off\"   - disable clock\n"
-                 "               OPT is \"sec\"   - enable seconds\n"
-                 "               OPT is \"nosec\" - disable seconds\n"
-                 "               No OPT toggles the clock display"
-                 );
+  return strconcat ("```"
+                    "/read          Show the current display\n"
+                    "/write STRING  Show STRING on the display and\n"
+                    "               disable the clock\n"
+                    "/clock [OPT]   Control the clock display:\n"
+                    "               OPT is \"on\"    - enable clock\n"
+                    "               OPT is \"off\"   - disable clock\n"
+                    "               OPT is \"sec\"   - enable seconds\n"
+                    "               OPT is \"nosec\" - disable seconds\n"
+                    "               No OPT toggles the clock display",
+                    "\n```", NULL
+                    );
 }
 
 
@@ -941,6 +967,7 @@ handle_cmd (char *cmd)
   } cmdtbl[] = {
     { "read",   cmd_read },
     { "write",  cmd_write },
+    { "echo",   cmd_echo },
     { "clock",  cmd_clock },
     { "help",   cmd_help },
     { NULL, NULL }
