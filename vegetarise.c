@@ -89,7 +89,7 @@
 #define ATTR_PRINTF(a,b)    __attribute__ ((format (printf,a,b)))
 #define ATTR_NR_PRINTF(a,b) __attribute__ ((noreturn,format (printf,a,b)))
 #else
-#define ATTR_PRINTF(a,b)    
+#define ATTR_PRINTF(a,b)
 #define ATTR_NR_PRINTF(a,b)
 #endif
 
@@ -127,8 +127,8 @@ typedef struct pushback_s PUSHBACK;
 
 struct hash_entry_s {
   struct hash_entry_s *next;
-  unsigned int veg_count; 
-  unsigned int spam_count; 
+  unsigned int veg_count;
+  unsigned int spam_count;
   unsigned int hit_ref; /* reference to the hit table. */
   char prob; /* range is 1 to 99 or 0 for not calculated */
   char word [1];
@@ -137,7 +137,7 @@ typedef struct hash_entry_s *HASH_ENTRY;
 
 struct hit_array_s {
   size_t size; /* Allocated size. */
-  unsigned int *hits;  
+  unsigned int *hits;
 };
 typedef struct hit_array_s *HIT_ARRAY;
 
@@ -153,8 +153,8 @@ static int running_as_server;
 static size_t total_memory_used;
 
 
-/* The global table with the words and its size. */ 
-static int hash_table_size; 
+/* The global table with the words and its size. */
+static int hash_table_size;
 static HASH_ENTRY *word_table;
 
 /* When storing a new word, we assign a hit reference id to it, so
@@ -183,7 +183,7 @@ static void info (const char *format, ...)  ATTR_PRINTF(1,2);
 
 
 
-/* 
+/*
     Helper
 
 */
@@ -248,7 +248,7 @@ hash_string (const char *s)
 {
   unsigned int h = 0;
   unsigned int g;
-  
+
   while (*s)
     {
       h = (h << 4) + *s++;
@@ -270,7 +270,7 @@ pushback (PUSHBACK *pb, int c)
 }
 
 
-static inline int 
+static inline int
 basic_next_char (FILE *fp, PUSHBACK *pb)
 {
   int c;
@@ -293,7 +293,7 @@ basic_next_char (FILE *fp, PUSHBACK *pb)
   while (c == '<')
     {
       if ((c=getc (fp)) == EOF)
-          return c; 
+          return c;
       pushback (pb, c);
       if ( c != '!' )
         return '<';
@@ -325,8 +325,8 @@ basic_next_char (FILE *fp, PUSHBACK *pb)
           if ( (c=getc (fp)) == EOF)
             return EOF;
         }
-      while ( c != '-' ); 
-      
+      while ( c != '-' );
+
       while ( (c = getc (fp)) != '>')
         {
           if (c == EOF)
@@ -338,7 +338,7 @@ basic_next_char (FILE *fp, PUSHBACK *pb)
 }
 
 
-static inline int 
+static inline int
 next_char (FILE *fp, PUSHBACK *pb)
 {
   int c, c2;
@@ -349,7 +349,7 @@ next_char (FILE *fp, PUSHBACK *pb)
   switch (pb->state)
     {
     case 0: break;
-    case 1: 
+    case 1:
       if (pb->nl_seen && (c == '\r' || c == '\n'))
         {
           pb->state = 2;
@@ -381,15 +381,15 @@ next_char (FILE *fp, PUSHBACK *pb)
       pb->base64_nl = 0;
       if (c == ' ' || c == '\r' || c == '\t')
         goto next; /* skip all other kind of white space */
-      if (c == '=' ) 
+      if (c == '=' )
         goto next;   /* we ignore the stop character and rely on
                         the MIME boundary */
       if ((c = asctobin[c]) == 255 )
         goto next;  /* invalid base64 character */
-        
+
       switch (pb->state)
         {
-        case 3: 
+        case 3:
           pb->base64_val = c << 2;
           pb->state = 4;
           goto next;
@@ -454,17 +454,17 @@ next_char (FILE *fp, PUSHBACK *pb)
           goto next;
         }
       pb->state = 102;
-      break; /* we drop one, but that's okat for this application */
+      break; /* we drop one, but that's okay for this application */
     case 106:
-      if ( !isspace (c) == ' ')
+      if ( isspace (c) )
         {
           pb->state = 0; /* assume end of mime part */
           c = ' '; /* make sure that last token gets processed. */
         }
       else
-        pb->state = 102; 
+        pb->state = 102;
       break;
-      
+
     }
   return c;
 }
@@ -507,7 +507,7 @@ release_hit_array (HIT_ARRAY ha)
 }
 
 
-/* 
+/*
    real processing stuff
 */
 
@@ -553,13 +553,13 @@ check_one_word ( const char *word, int left_anchored, int is_spam,
 
   for (p=word; isdigit (*p); p++)
     ;
-  if (!*p || wordlen < 3) 
+  if (!*p || wordlen < 3)
     return; /* only digits or less than 3 chars */
   if (wordlen == 16 && word[6] == '-' && word[13] == '-')
     return; /* very likely a message-id formatted like 16cpeB-0004HM-00 */
 
   if (wordlen > 25 )
-    return; /* words longer than that are rare */ 
+    return; /* words longer than that are rare */
 
   for (n0=n1=n2=n3=n4=n5=0, p=word; *p; p++)
     {
@@ -653,7 +653,7 @@ parse_message (const char *fname, FILE *fp, int is_spam, int is_mbox,
                     pbbuf.state = 101;
                   else
                     pbbuf.state = 0;
-                  maybe_base64 = 0; 
+                  maybe_base64 = 0;
                 }
               else if (is_mbox && left_anchored
                        && !pbbuf.state && !strcmp (aword, "From"))
@@ -775,7 +775,7 @@ calc_prob (unsigned int g, unsigned int b,
      prob = .01;
    else if (prob > .99)
      prob = .99;
-  
+
    return (unsigned int) (prob * 100);
 }
 
@@ -785,7 +785,7 @@ calc_probability (unsigned int ngood, unsigned int nbad)
 {
   int n;
   HASH_ENTRY entry;
-  unsigned int g, b; 
+  unsigned int g, b;
 
   if (!ngood)
     die ("no vegetarian mails available - stop\n");
@@ -847,10 +847,10 @@ check_spam (unsigned int ngood, unsigned int nbad, HIT_ARRAY ha)
                   nst++;
                 }
               else if (dist > min_dist)
-                { 
+                {
                   unsigned int tmp = 100;
                   int tmpidx = -1;
-                  
+
                   for (i=0; i < MAX_WORDS; i++)
                     {
                       if (st[i].d < tmp)
@@ -863,7 +863,7 @@ check_spam (unsigned int ngood, unsigned int nbad, HIT_ARRAY ha)
                   st[tmpidx].e = entry;
                   st[tmpidx].d = dist;
                   st[tmpidx].prob = entry->prob? (double)entry->prob/100 : 0.4;
-                  
+
                   min_dist = 100;
                   for (i=0; i < MAX_WORDS; i++)
                     {
@@ -935,7 +935,7 @@ read_table (const char *fname,
             unsigned int *ngood, unsigned int *nbad, unsigned int *nwords)
 {
   FILE *fp;
-  char line[MAX_WORDLENGTH + 100]; 
+  char line[MAX_WORDLENGTH + 100];
   unsigned int lineno = 0;
   char *p;
 
@@ -1007,7 +1007,7 @@ open_next_file (FILE *listfp, char *fname, size_t fnamelen)
 
   while ( fgets (line, sizeof line, listfp) )
     {
-      if (!*line) 
+      if (!*line)
         { /* last line w/o LF? */
           if (fgetc (listfp) != EOF)
             error ("weird problem reading file list\n");
@@ -1059,7 +1059,7 @@ check_and_print (unsigned int veg_count, unsigned int spam_count,
 
 
 /*
-   Server code and startup 
+   Server code and startup
 */
 
 #ifdef HAVE_PTH
@@ -1070,7 +1070,7 @@ writen (int fd, const void *buf, size_t nbytes)
 {
   size_t nleft = nbytes;
   int nwritten;
-  
+
   while (nleft > 0)
     {
       nwritten = my_write( fd, buf, nleft );
@@ -1087,7 +1087,7 @@ writen (int fd, const void *buf, size_t nbytes)
       nleft -= nwritten;
       buf = (const char*)buf + nwritten;
     }
-  
+
   return 0;
 }
 
@@ -1116,7 +1116,7 @@ readline (int fd, char *buf, size_t buflen)
       nleft -= n;
       buf += n;
       nread += n;
-      
+
       for (; n && *p != '\n'; n--, p++)
         ;
       if (n)
@@ -1126,8 +1126,8 @@ readline (int fd, char *buf, size_t buflen)
                     it is okay to forget about pending bytes */
         }
     }
-  
-  return nread; 
+
+  return nread;
 }
 
 
@@ -1137,12 +1137,12 @@ create_socket (const char *name, struct sockaddr_un *addr, size_t *len)
 {
   int fd;
 
-  if (strlen (name)+1 >= sizeof addr->sun_path) 
+  if (strlen (name)+1 >= sizeof addr->sun_path)
     die ("oops\n");
 
-  if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) 
+  if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     die ("can't create socket: %s\n", strerror(errno));
-    
+
   memset (addr, 0, sizeof *addr);
   addr->sun_family = AF_UNIX;
   strcpy (addr->sun_path, name);
@@ -1150,7 +1150,7 @@ create_socket (const char *name, struct sockaddr_un *addr, size_t *len)
           + strlen (addr->sun_path) + 1);
   return fd;
 }
-    
+
 
 /* Try to connect to the socket NAME and return the file descriptor. */
 static int
@@ -1180,7 +1180,7 @@ handle_signal (int signo)
     case SIGHUP:
       info ("SIGHUP received - re-reading configuration\n");
       break;
-      
+
     case SIGUSR1:
       if (verbose < 5)
         verbose++;
@@ -1197,7 +1197,7 @@ handle_signal (int signo)
       info ("SIGTERM received - shutting down ...\n");
       exit (0);
       break;
-        
+
     case SIGINT:
       info ("SIGINT received - immediate shutdown\n");
       exit (0);
@@ -1219,7 +1219,7 @@ handle_request (void *arg)
   int i;
   FILE *fp;
   char *p, buf[100];
-  
+
   if (verbose > 1)
     info ("handler for fd %d started\n", fd);
   /* See whether we can use a hit_array from our attic */
@@ -1311,10 +1311,10 @@ start_server (const char *name)
 
   fflush (NULL);
   pid = fork ();
-  if (pid == (pid_t)-1) 
+  if (pid == (pid_t)-1)
     die ("fork failed: %s\n", strerror (errno));
 
-  if (pid) 
+  if (pid)
     {
       /* FIXME: we should use a pipe to wait forthe server to get ready */
       return; /* we are the parent */
@@ -1331,7 +1331,7 @@ start_server (const char *name)
       /* This might happen when server has been started in the meantime. */
       die ("error binding socket to `%s': %s\n", name, strerror (errno));
     }
-  
+
   if (listen (srvr_fd, 5 ) == -1)
     die ("listen on `%s' failed: %s\n", name, strerror (errno));
   if (verbose)
@@ -1429,7 +1429,7 @@ main (int argc, char **argv)
   if (argc < 1)
     usage ();  /* Hey, read how to use exec*(2) */
   argv++; argc--;
-  for (; argc; argc--, argv++) 
+  for (; argc; argc--, argv++)
     {
       const char *s = *argv;
       if (!skip && *s == '-')
@@ -1439,7 +1439,7 @@ main (int argc, char **argv)
             skip = 1;
             continue;
           }
-          if (*s == '-' || !*s) 
+          if (*s == '-' || !*s)
             usage();
 
           while (*s)
@@ -1493,7 +1493,7 @@ main (int argc, char **argv)
             }
           continue;
         }
-      else 
+      else
         break;
     }
 
@@ -1555,7 +1555,7 @@ main (int argc, char **argv)
 #endif /*HAVE_PTH*/
     }
 
-  
+
   if (learn && !server)
     {
       FILE *veg_fp = NULL, *spam_fp = NULL;
@@ -1581,7 +1581,7 @@ main (int argc, char **argv)
         }
 
       if (argc == 3)
-        { 
+        {
           info ("loading initial wordlist\n");
           read_table (argv[2], &veg_count, &spam_count, &nwords);
           info ("%u vegetarian, %u spam, %u words, %lu kb memory used\n",
@@ -1622,7 +1622,7 @@ main (int argc, char **argv)
         }
       info ("computing probabilities\n");
       calc_probability (veg_count, spam_count);
-      
+
       write_table (veg_count, spam_count);
 
       info ("%u vegetarian, %u spam, %lu kb memory used\n",
@@ -1634,10 +1634,10 @@ main (int argc, char **argv)
     { /* server mode */
 
       argc--; argv++; /* ignore the wordlist */
-      
+
       if (argc > 1)
         usage ();
-                    
+
       fp = argc? fopen (argv[0], "r") : stdin;
       if (!fp)
         die ("can't open `%s': %s\n", argv[0], strerror (errno));
@@ -1646,7 +1646,7 @@ main (int argc, char **argv)
           close (server_fd);
           if (verbose)
             puts ("spam\n");
-          exit (0); 
+          exit (0);
         }
       close (server_fd);
       exit (1); /* Non-Spam but we use false so that a
@@ -1670,7 +1670,7 @@ main (int argc, char **argv)
         info ("%u vegetarian, %u spam, %u words, %lu kb memory used\n",
               veg_count, spam_count, nwords,
               (unsigned long int)total_memory_used/1024);
-      
+
       ha = new_hit_array ();
 
       if (!argc)
